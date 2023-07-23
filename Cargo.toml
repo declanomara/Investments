@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    # "research",
+    "trading",
+    # "data-collection",
+    "quantlib"
+]
