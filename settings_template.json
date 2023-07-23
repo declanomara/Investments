@@ -1,0 +1,12 @@
+{
+    "instruments": [
+        "EUR_USD",
+        "GBP_USD"
+    ],
+
+    "units": 1000.0,
+    "oanda": {
+        "account_id": "XXX-XXX-XXXXXXXX-XXX",
+        "authorization": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    }
+}
