@@ -1,10 +1,5 @@
 use crate::oanda;
-
-#[derive(Debug)]
-pub struct TradingSignal {
-    pub instrument: String,
-    pub forecast: f64, // 1.0 for 100% confidence in a price increase, -1.0 for 100% confidence in a price decrease
-}
+use crate::models::TradingSignal;
 
 pub trait AlphaModel {
     fn tick(&mut self, price: &oanda::Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>>;
@@ -185,6 +180,3 @@ impl AlphaModel for WeightedConsensus {
 }
 
         
-
-
-

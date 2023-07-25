@@ -209,6 +209,16 @@ pub struct PositionDetails {
     pub unrealized_pl: f64,
 }
 
+impl Position {
+    pub fn units(&self) -> f64 {
+        self.long.units - self.short.units
+    }
+
+    pub fn unrealized_pl(&self) -> f64 {
+        self.long.unrealized_pl + self.short.unrealized_pl
+    }
+}
+
 fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: serde::Deserializer<'de>,
