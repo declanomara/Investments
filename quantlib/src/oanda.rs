@@ -115,10 +115,15 @@ impl PriceStream {
         items
     }
 
-    async fn next_items(&mut self) -> Vec<StreamItem> {
-        let chunk = self.response.chunk().await.unwrap();
-        let items = self.parse_chunk(&chunk.unwrap()).await;
-        items
+    async fn next_items(&mut self) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
+        let chunk = self.response.chunk().await?;
+        if let Some(chunk) = chunk {
+            let items = self.parse_chunk(&chunk).await;
+            return Ok(items);
+        }
+        else {
+            return Err("Received empty chunk".into());
+        }
     }
 }
 
@@ -127,8 +132,15 @@ impl Iterator for PriceStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         let items = futures::executor::block_on(self.next_items());
-        for item in items {
-            return Some(Ok(item));
+        match items {
+            Ok(items) => {
+                for item in items {
+                    return Some(Ok(item));
+                }
+            },
+            Err(err) => {
+                return Some(Err(err));
+            }
         }
         None
     }
@@ -207,6 +219,18 @@ pub struct PositionDetails {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     #[serde(rename = "unrealizedPL")]
     pub unrealized_pl: f64,
+}
+
+impl Position {
+    pub fn units(&self) -> f64 {
+        let net = self.long.units + self.short.units;
+        println!("Net units: {}+{}={}", self.long.units, self.short.units, net);
+        net
+    }
+
+    pub fn unrealized_pl(&self) -> f64 {
+        self.long.unrealized_pl + self.short.unrealized_pl
+    }
 }
 
 fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<f64, D::Error>
