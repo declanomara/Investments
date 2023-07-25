@@ -17,6 +17,7 @@ impl<'a> PortfolioBuilder<'a> {
             settings,
             positions: Vec::new()
         }
+        // TODO: initialize positions
     }
 
     // Update the positions held by the portfolio builder to reflect the current state of the account
@@ -31,19 +32,32 @@ impl<'a> PortfolioBuilder<'a> {
     pub async fn handle_signal(&mut self, signal: TradingSignal) -> Result<(), Box<dyn std::error::Error>> {
         let current_position = self.positions.iter().find(|p| p.instrument == signal.instrument);
         if let Some(position) = current_position {
-            // If signal is positive, close short position if it exists and open long position
-            // If signal is negative, close long position if it exists and open short position
-            if signal.forecast > 0.0 {
-                if position.short.units > 0.0 {
-                    oanda::place_market_order(&signal.instrument, position.short.units, &self.settings.oanda).await?;
-                }
-                oanda::place_market_order(&signal.instrument, self.settings.units, &self.settings.oanda).await?;
+            // Determine the desired position size
+            let desired_position = if signal.forecast > 0.0 {
+                self.settings.units
             } else if signal.forecast < 0.0 {
-                if position.long.units > 0.0 {
-                    oanda::place_market_order(&signal.instrument, position.long.units, &self.settings.oanda).await?;
-                }
-                oanda::place_market_order(&signal.instrument, -self.settings.units, &self.settings.oanda).await?;
+                -self.settings.units
+            } else {
+                0.0
+            };
+
+            println!("Desired position: {}", desired_position);
+            println!("Current position: {}", position.units());
+
+            // Determine the required changes to the current position to reach the desired position
+            let required_units = desired_position - position.units();
+            println!("Required units: {}", required_units);
+
+            // If no changes are required, do nothing
+            // This automatically handles the case where the desired position is 0.0,
+            // as well as preventing repeated signals from increasing the position size
+            if required_units == 0.0 {
+                return Ok(());
             }
+            else {
+                oanda::place_market_order(&signal.instrument, required_units, &self.settings.oanda).await?;
+            }
+
         } else {
             // If no position exists, open a new position
             if signal.forecast > 0.0 {
@@ -52,6 +66,9 @@ impl<'a> PortfolioBuilder<'a> {
                 oanda::place_market_order(&signal.instrument, -self.settings.units, &self.settings.oanda).await?;
             }
         }
+
+        // Update the positions held by the portfolio builder to reflect the current state of the account
+        self.update_positions().await?;
         Ok(())
     }
 
