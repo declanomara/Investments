@@ -223,7 +223,9 @@ pub struct PositionDetails {
 
 impl Position {
     pub fn units(&self) -> f64 {
-        self.long.units - self.short.units
+        let net = self.long.units + self.short.units;
+        println!("Net units: {}+{}={}", self.long.units, self.short.units, net);
+        net
     }
 
     pub fn unrealized_pl(&self) -> f64 {
