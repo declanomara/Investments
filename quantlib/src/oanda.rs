@@ -115,10 +115,15 @@ impl PriceStream {
         items
     }
 
-    async fn next_items(&mut self) -> Vec<StreamItem> {
-        let chunk = self.response.chunk().await.unwrap();
-        let items = self.parse_chunk(&chunk.unwrap()).await;
-        items
+    async fn next_items(&mut self) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
+        let chunk = self.response.chunk().await?;
+        if let Some(chunk) = chunk {
+            let items = self.parse_chunk(&chunk).await;
+            return Ok(items);
+        }
+        else {
+            return Err("Received empty chunk".into());
+        }
     }
 }
 
@@ -127,8 +132,15 @@ impl Iterator for PriceStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         let items = futures::executor::block_on(self.next_items());
-        for item in items {
-            return Some(Ok(item));
+        match items {
+            Ok(items) => {
+                for item in items {
+                    return Some(Ok(item));
+                }
+            },
+            Err(err) => {
+                return Some(Err(err));
+            }
         }
         None
     }
