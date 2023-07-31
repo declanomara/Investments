@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    # "research",
+    "research",
     "trading",
     # "data-collection",
     "quantlib"

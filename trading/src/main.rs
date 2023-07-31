@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Match on the item to see what kind of stream item it is, if it's a price, print it out, otherwise ignore it
         match item {
             Ok(quantlib::oanda::StreamItem::Price(price)) => {
-                println!("[{}][PRICE] Bid: {:.5} Ask: {:.5}", price.instrument, price.closeout_bid, price.closeout_ask);
+                println!("[{}][PRICE] Bid: {:.5} Ask: {:.5}", price.instrument, price.bid, price.ask);
                 let signal = ema.tick(&price)?;
                 match signal {
                     Some(signal) => {

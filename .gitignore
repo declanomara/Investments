@@ -15,3 +15,14 @@ target/
 
 # Ignore settings file that may contain sensitive information.
 settings.json
+
+# Ignore locally stored data (local datasets are small and only used for testing)
+data/
+
+# Ignore python virtual environment
+venv/
+.venv/
+
+# Ignore any reports generated during research
+reports/
+*.csv
