@@ -33,14 +33,14 @@ impl AlphaModel for ExponentialMovingAverage {
 
         // If we don't have a slow or fast moving average yet, set them to the current price
         if self.slow_ma < 0.0 || self.fast_ma < 0.0 {
-            self.fast_ma = price.closeout_ask;
-            self.slow_ma = price.closeout_ask;
+            self.fast_ma = price.ask;
+            self.slow_ma = price.ask;
             return Ok(None);
         }
 
         // Calculate the new moving averages
-        let new_slow_ma = self.slow_ma_weight * price.closeout_ask + (1.0 - self.slow_ma_weight) * self.slow_ma;
-        let new_fast_ma = self.fast_ma_weight * price.closeout_ask + (1.0 - self.fast_ma_weight) * self.fast_ma;
+        let new_slow_ma = self.slow_ma_weight * price.ask + (1.0 - self.slow_ma_weight) * self.slow_ma;
+        let new_fast_ma = self.fast_ma_weight * price.ask + (1.0 - self.fast_ma_weight) * self.fast_ma;
 
         // If the fast moving average crosses above the slow moving average, buy
         if new_fast_ma > new_slow_ma && self.fast_ma < self.slow_ma {
@@ -83,7 +83,7 @@ impl AlphaModel for SimpleMovingAverage {
         let signal;
         
         // Add the current price to the list of prices
-        self.prices.push(price.closeout_ask);
+        self.prices.push(price.ask);
 
         // If we don't have enough prices yet, return None
         if self.prices.len() < self.period {
@@ -103,7 +103,7 @@ impl AlphaModel for SimpleMovingAverage {
         let average = sum / self.prices.len() as f64;
 
         // If the current price is above the average, buy
-        if price.closeout_ask > average {
+        if price.ask > average {
             signal = Some(TradingSignal {
                 instrument: self.instrument.clone(),
                 forecast: 1.0,

@@ -29,11 +29,11 @@ struct Response {
 pub struct Price {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     #[serde(rename = "closeoutBid")]
-    pub closeout_bid: f64,
+    pub bid: f64,
 
     #[serde(deserialize_with = "deserialize_number_from_string")]
     #[serde(rename = "closeoutAsk")]
-    pub closeout_ask: f64,
+    pub ask: f64,
 
     pub time: String,
     pub instrument: String,
