@@ -83,48 +83,21 @@ fn run_experiment(slow_ma_weight: f32, fast_ma_weight: f32) -> backtesting::Back
         backtest
 }
 
-fn generate_report(slow_ma_weight: f32, fast_ma_weight: f32) -> Result<(), Box<dyn Error>> {
-    let mut backtest = create_backtest(slow_ma_weight, fast_ma_weight);
-    let price_stream = backtesting::HistoricalPriceStream::new(DATA_SET)?;
-
-    backtest.generate_report(price_stream, "report.csv".to_string());
-
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
     let (mut slow_ma, mut fast_ma) = (0.00003469167, 0.00005774755);
-    let mut best_profit = run_experiment(slow_ma, fast_ma).profit;
+    
+    let price_stream = backtesting::HistoricalPriceStream::new(DATA_SET)?;
+    let mut backtest = create_backtest(slow_ma, fast_ma);
 
-    // generate_report(slow_ma, fast_ma);
+    print!("Running backtest with slow_ma_weight: {}, fast_ma_weight: {} on data set {}... ", slow_ma, fast_ma, DATA_SET);
+    backtest.run(price_stream)?;
+    println!("Done!");
 
-    let mut count = 0;
+    print_results(&backtest);
 
-    loop {
-        let (new_slow_ma, new_fast_ma) = adjust_weights(slow_ma, fast_ma);
-        let backtest = run_experiment(new_slow_ma, new_fast_ma);
-        if backtest.profit > best_profit {
-            println!("New best parameters: ({}, {})", new_slow_ma, new_fast_ma);
-            print_results(&backtest);
-
-            if GENERATE_REPORTS {
-                match generate_report(new_slow_ma, new_fast_ma) {
-                    Ok(_) => println!("Report generated"),
-                    Err(e) => println!("Error generating report: {}", e),
-                }
-            }
-
-            slow_ma = new_slow_ma;
-            fast_ma = new_fast_ma;
-            best_profit = backtest.profit;
-        }
-
-        count += 1;
-        if count % 100 == 0 {
-            println!("{} iterations", count);
-            println!("Best profit: {}", best_profit);
-        }
-    }
+    print!("Saving results to file... ");
+    backtest.save_report("results.csv")?;
+    println!("Done!");
 
     Ok(())
 }
