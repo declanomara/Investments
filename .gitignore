@@ -22,3 +22,7 @@ data/
 # Ignore python virtual environment
 venv/
 .venv/
+
+# Ignore any reports generated during research
+reports/
+*.csv
