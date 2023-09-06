@@ -1,7 +1,9 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::error::Error;
+use std::path::Path;
 use csv;
+use rand::Rng;
 
 
 // Parses a 16 byte chunk of binary price data.
@@ -31,7 +33,7 @@ pub struct HistoricalPriceStream {
 }
 
 impl HistoricalPriceStream {
-    pub fn new(path: &str) -> Result<HistoricalPriceStream, Box<dyn Error>> {
+    pub fn new(path: &Path) -> Result<HistoricalPriceStream, Box<dyn Error>> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
         let buffer: [u8; 16] = [0; 16];
@@ -75,6 +77,12 @@ pub trait AlphaModel {
     // timestamp, bid, ask, and signal are automatically added
     fn generate_row(&self, price: &HistoricalPrice) -> Result<Vec<BacktestMetric>, Box<dyn Error>>;
     fn generate_headers(&self) -> Result<Vec<String>, Box<dyn Error>>;
+
+    // To allow for genetic optimization, we need to be able to create a model from a vector of parameters
+    // This function should return a new model with the given parameters
+    fn from_parameters(&self, parameters: Vec<f64>) -> Box<dyn AlphaModel>;
+    fn get_parameters(&self) -> Vec<f64>;
+    fn random() -> Box<dyn AlphaModel> where Self: Sized;
 }
 
 pub struct ExponentialMovingAverage {
@@ -142,6 +150,20 @@ impl AlphaModel for ExponentialMovingAverage {
         ])
     }
 
+    // Genetic optimization functions
+    fn from_parameters(&self, parameters: Vec<f64>) -> Box<dyn AlphaModel> {
+        Box::new(ExponentialMovingAverage::new(parameters[0], parameters[1]))
+    }
+
+    fn get_parameters(&self) -> Vec<f64> {
+        vec![self.slow_ma_weight, self.fast_ma_weight]
+    }
+
+    fn random() -> Box<dyn AlphaModel> {
+        let slow_ma_weight = rand::thread_rng().gen_range(0.0..0.01);
+        let fast_ma_weight = rand::thread_rng().gen_range(slow_ma_weight..0.05);
+        Box::new(ExponentialMovingAverage::new(slow_ma_weight, fast_ma_weight))
+    }
 }
 
 pub enum BacktestMetric {
@@ -216,7 +238,7 @@ impl Backtest {
         Ok(())
     }
 
-    pub fn run(&mut self, price_stream: HistoricalPriceStream) -> Result<(), Box<dyn Error>> {
+    pub fn run(&mut self, price_stream: &mut HistoricalPriceStream) -> Result<(), Box<dyn Error>> {
         for price in price_stream {
             self.tick(&price)?;
         }
