@@ -43,7 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[INFO] Validating output directory...");
     validate_output_directory(log_path)?;
 
-    let settings = quantlib::util::read_settings()?;
+    let settings = quantlib::util::read_settings().unwrap_or_else(|err| {
+        println!("[ERROR] Failed to read settings: {}", err);
+        std::process::exit(1);
+    });
+
     let logging_price_stream = quantlib::oanda::LoggingPriceStream::new(
         &["EUR_USD".to_string()],
         log_path,
