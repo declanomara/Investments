@@ -173,6 +173,7 @@ impl LoggingPriceStream {
         let buffer = Vec::new();
 
         let raw_log_path = format!("{}/raw.log", log_path);
+        println!("Raw log path: {}", raw_log_path);
         let mut options = std::fs::OpenOptions::new();
         let raw_log_file = options.append(true).create(true).open(raw_log_path).unwrap_or_else(|err| {
             panic!("Failed to open raw log file: {}", err);
@@ -219,6 +220,7 @@ impl LoggingPriceStream {
     }
 
     pub async fn log_raw(&mut self, chunk: &[u8]) {
+        println!("Logging raw chunk: {:?}", chunk);
         self.raw_log_writer.write_all(&chunk).unwrap();
     }
 
@@ -231,7 +233,6 @@ impl LoggingPriceStream {
         while let Some(result) = stream.next() {
             match result {
                 Ok(item) => {
-                    // println!("Buffer: {:?}", std::str::from_utf8(&self.buffer).unwrap());
                     items.push(item);
                 }
                 Err(err) => {
