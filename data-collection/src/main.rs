@@ -4,7 +4,7 @@ use quantlib;
 fn validate_output_directory(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Create the directory if it doesn't exist
     if !std::path::Path::new(path).exists() {
-        println!("[WARN] Output directory does not exist. Creating...");
+        println!("[WARN] Output directory does not exist. Creating {}...", path);
         std::fs::create_dir_all(path)?;
     }
 
@@ -18,7 +18,7 @@ fn validate_output_directory(path: &str) -> Result<(), Box<dyn std::error::Error
     // Create bin/ directory within the output directory
     let bin_path = format!("{}/bin", path);
     if !std::path::Path::new(&bin_path).exists() {
-        println!("[INFO] Creating bin/ directory...");
+        println!("[INFO] Creating bin/ directory at {}...", bin_path);
         std::fs::create_dir_all(&bin_path)?;
     }
     Ok(())
