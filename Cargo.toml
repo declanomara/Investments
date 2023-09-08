@@ -3,6 +3,6 @@
 members = [
     "research",
     "trading",
-    # "data-collection",
+    "data-collection",
     "quantlib"
 ]
