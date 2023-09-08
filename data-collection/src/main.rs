@@ -11,7 +11,7 @@ fn validate_output_directory(path: &str) -> Result<(), Box<dyn std::error::Error
     // Create the raw.log file within the output directory
     let raw_log_path = format!("{}/raw.log", path);
     if !std::path::Path::new(&raw_log_path).exists() {
-        println!("[INFO] Creating raw.log file...");
+        println!("[INFO] Creating raw.log file at {}...", raw_log_path);
         std::fs::File::create(&raw_log_path)?;
     }
 
