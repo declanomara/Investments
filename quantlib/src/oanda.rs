@@ -191,6 +191,14 @@ impl LoggingPriceStream {
         }
     }
 
+    pub fn flush(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.raw_log_writer.flush()?;
+        for (_, writer) in self.bin_log_writers.iter_mut() {
+            writer.flush()?;
+        }
+        Ok(())
+    }
+
     pub async fn log_price(&mut self, price: &Price) {
         // TODO: Parse timestamp from price
         let timestamp: u64 = 0;

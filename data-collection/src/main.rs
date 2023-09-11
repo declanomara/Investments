@@ -1,6 +1,9 @@
 use quantlib;
 use quantlib::logging;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 // Ensure output directory exists
 fn validate_output_directory(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Create the directory if it doesn't exist
@@ -42,6 +45,13 @@ fn handle_error(e: Box<dyn std::error::Error>) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })?;
+
     let log_path = "data/";
     logging::info("Validating output directory...");
 
@@ -52,14 +62,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     });
 
-    let logging_price_stream = quantlib::oanda::LoggingPriceStream::new(
+    let mut logging_price_stream = quantlib::oanda::LoggingPriceStream::new(
         &["EUR_USD".to_string()],
         log_path,
         10_000, // 10 second timeout, we expect a heartbeat every 5 seconds
         &settings.oanda
     ).await;
 
-    for item in logging_price_stream {
+    while let Some(item) = logging_price_stream.next() {
         match item {
             Ok(quantlib::oanda::StreamItem::Price(price)) => {
                 logging::info(&format!("[{}] Bid: {:.5} Ask: {:.5}", price.instrument, price.bid, price.ask));
@@ -70,6 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => {
                 handle_error(e);
             }
+        }
+        
+        // Handle SIGINT elegantly
+        if running.load(Ordering::SeqCst) == false {
+            logging::info("Received SIGINT, flushing buffers and exiting...");
+            logging_price_stream.flush()?;
+            break;
         }
     }
 
