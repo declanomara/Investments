@@ -18,6 +18,7 @@ settings.json
 
 # Ignore locally stored data (local datasets are small and only used for testing)
 data/
+historical-data/
 
 # Ignore python virtual environment
 venv/
