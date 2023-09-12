@@ -31,13 +31,13 @@ struct Response {
 
 #[derive(Debug, Deserialize)]
 pub struct Price {
-    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[serde(deserialize_with = "deserialize_f32_from_string")]
     #[serde(rename = "closeoutBid")]
-    pub bid: f64,
+    pub bid: f32,
 
-    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[serde(deserialize_with = "deserialize_f32_from_string")]
     #[serde(rename = "closeoutAsk")]
-    pub ask: f64,
+    pub ask: f32,
 
     pub time: String,
     pub instrument: String,
@@ -367,9 +367,9 @@ pub struct Position {
 
 #[derive(Debug, Deserialize)]
 pub struct PositionDetails {
-    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[serde(deserialize_with = "deserialize_f64_from_string")]
     pub units: f64,
-    #[serde(deserialize_with = "deserialize_number_from_string")]
+    #[serde(deserialize_with = "deserialize_f64_from_string")]
     #[serde(rename = "unrealizedPL")]
     pub unrealized_pl: f64,
 }
@@ -386,12 +386,20 @@ impl Position {
     }
 }
 
-fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<f64, D::Error>
+fn deserialize_f64_from_string<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let s: &str = serde::Deserialize::deserialize(deserializer)?;
     s.parse::<f64>().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_f32_from_string<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+    s.parse::<f32>().map_err(serde::de::Error::custom)
 }
 
 pub async fn get_positions(settings: &OandaSettings) -> Result<Vec<Position>, Box<dyn std::error::Error>> {

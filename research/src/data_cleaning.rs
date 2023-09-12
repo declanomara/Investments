@@ -179,8 +179,8 @@ pub fn chunk_data_into_weeks(path: &str) -> Result<Vec<Week>, Box<dyn Error>> {
             continue;
         }
 
-        let (start_timestamp, _, _) = backtesting::parse_chunk(&week[0])?;
-        let (end_timestamp, _, _) = backtesting::parse_chunk(&week[week.len() - 1])?;
+        let (start_timestamp, _, _) = backtesting::parse_chunk(&week[0], true)?;
+        let (end_timestamp, _, _) = backtesting::parse_chunk(&week[week.len() - 1], true)?;
 
         weeks.push(Week {
             data: week,
@@ -227,7 +227,7 @@ pub fn calculate_average_time_between_ticks(week: &Week) -> Result<f64, Box<dyn 
     let mut last_timestamp: u64 = 0;
 
     for chunk in &week.data {
-        let (timestamp, _, _) = backtesting::parse_chunk(chunk)?;
+        let (timestamp, _, _) = backtesting::parse_chunk(chunk, true)?;
         if last_timestamp == 0 {
             last_timestamp = timestamp;
             continue;
@@ -249,7 +249,7 @@ pub fn calculate_max_time_between_ticks(week: &Week) -> Result<f64, Box<dyn Erro
     let mut last_timestamp: u64 = 0;
 
     for chunk in &week.data {
-        let (timestamp, _, _) = backtesting::parse_chunk(chunk)?;
+        let (timestamp, _, _) = backtesting::parse_chunk(chunk, true)?;
         if last_timestamp == 0 {
             last_timestamp = timestamp;
             continue;

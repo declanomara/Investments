@@ -8,17 +8,29 @@ use csv;
 // The first 8 bytes are the timestamp, in milliseconds since the epoch.
 // The next 4 bytes are the bid price, as a f32 (little endian).
 // The last 4 bytes are the ask price, as a f32 (little endian).
-pub fn parse_chunk(chunk: &[u8]) -> Result<(u64, f32, f32), Box<dyn Error>> {
-    let timestamp_bytes: [u8; 8] = chunk[0..8].try_into()?;
-    let timestamp = u64::from_le_bytes(timestamp_bytes);
-
+pub fn parse_chunk(chunk: &[u8], is_little_endian: bool) -> Result<(u64, f32, f32), Box<dyn Error>> {
+    let timestamp_bytes: [u8; 8] = chunk[0..8].try_into()?;    
     let bid_bytes: [u8; 4] = chunk[8..12].try_into()?;
     let ask_bytes: [u8; 4] = chunk[12..16].try_into()?;
-    let bid = f32::from_le_bytes(bid_bytes);
-    let ask = f32::from_le_bytes(ask_bytes);
+
+    let timestamp: u64;
+    let bid: f32;
+    let ask: f32;
+    
+    if is_little_endian{
+        timestamp = u64::from_le_bytes(timestamp_bytes);
+        bid = f32::from_le_bytes(bid_bytes);
+        ask = f32::from_le_bytes(ask_bytes);
+    }
+    else{
+        timestamp = u64::from_be_bytes(timestamp_bytes);
+        bid = f32::from_be_bytes(bid_bytes);
+        ask = f32::from_be_bytes(ask_bytes);
+    }
+    
     Ok((timestamp, bid, ask))
 }
-
+#[derive(Debug)]
 pub struct HistoricalPrice {
     pub time: u64,
     pub bid: f32,
@@ -28,14 +40,15 @@ pub struct HistoricalPrice {
 pub struct HistoricalPriceStream {
     file: BufReader<File>,
     buffer: [u8; 16],
+    is_little_endian: bool,
 }
 
 impl HistoricalPriceStream {
-    pub fn new(path: &str) -> Result<HistoricalPriceStream, Box<dyn Error>> {
+    pub fn new(path: &str, is_little_endian: bool) -> Result<HistoricalPriceStream, Box<dyn Error>> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
         let buffer: [u8; 16] = [0; 16];
-        Ok(HistoricalPriceStream { file, buffer })
+        Ok(HistoricalPriceStream { file, buffer, is_little_endian })
     }
 }
 
@@ -45,7 +58,7 @@ impl Iterator for HistoricalPriceStream {
     fn next(&mut self) -> Option<Self::Item> {
         match self.file.read_exact(&mut self.buffer) {
             Ok(_) => {
-                match parse_chunk(&self.buffer) {
+                match parse_chunk(&self.buffer, self.is_little_endian) {
                     Ok((timestamp, bid, ask)) => {
                         let price = HistoricalPrice {
                             time: timestamp,
