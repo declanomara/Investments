@@ -1,7 +1,7 @@
 // main.rs
 
-use std::error::Error;
 use rand::Rng;
+use std::error::Error;
 
 mod backtesting;
 mod data_cleaning;
@@ -18,9 +18,10 @@ const DATA_SETS: [&str; 6] = [
 ];
 
 fn create_backtest(slow_ma_weight: f32, fast_ma_weight: f32) -> backtesting::Backtest {
-    let alpha_model = Box::new(
-        backtesting::ExponentialMovingAverage::new(slow_ma_weight as f64, fast_ma_weight as f64)
-    );
+    let alpha_model = Box::new(backtesting::ExponentialMovingAverage::new(
+        slow_ma_weight as f64,
+        fast_ma_weight as f64,
+    ));
 
     backtesting::Backtest::new(alpha_model, INITIAL_BALANCE)
 }
@@ -35,7 +36,7 @@ fn print_results(backtest: &backtesting::Backtest) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     // let (mut slow_ma, mut fast_ma) = (0.00003469167, 0.00005774755);
-    
+
     // let price_stream = backtesting::HistoricalPriceStream::new(DATA_SET)?;
     // let mut backtest = create_backtest(slow_ma, fast_ma);
 

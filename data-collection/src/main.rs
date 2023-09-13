@@ -35,7 +35,7 @@ fn handle_error(e: Box<dyn std::error::Error>) {
         Some(_elapsed_error) => {
             // Handle the elapsed error here
             logging::error("Connection timed out.");
-        },
+        }
         None => {
             // Handle other errors here
             logging::error(e.to_string().as_str());
@@ -66,22 +66,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &["EUR_USD".to_string()],
         log_path,
         10_000, // 10 second timeout, we expect a heartbeat every 5 seconds
-        &settings.oanda
-    ).await;
+        &settings.oanda,
+    )
+    .await;
 
     while let Some(item) = logging_price_stream.next() {
         match item {
             Ok(quantlib::oanda::StreamItem::Price(price)) => {
-                logging::info(&format!("[{}] Bid: {:.5} Ask: {:.5}", price.instrument, price.bid, price.ask));
-            },
+                logging::info(&format!(
+                    "[{}] Bid: {:.5} Ask: {:.5}",
+                    price.instrument, price.bid, price.ask
+                ));
+            }
             Ok(quantlib::oanda::StreamItem::Heartbeat(_)) => {
                 // logging::debug("Heartbeat received.");
-            },
+            }
             Err(e) => {
                 handle_error(e);
             }
         }
-        
+
         // Handle SIGINT elegantly
         if running.load(Ordering::SeqCst) == false {
             logging::info("Received SIGINT, flushing buffers and exiting...");

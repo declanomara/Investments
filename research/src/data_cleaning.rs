@@ -1,11 +1,10 @@
 use crate::backtesting;
 
+use chrono::{DateTime, TimeZone, Utc};
+use chrono::{Datelike, Timelike, Weekday};
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
-use std::error::Error;
-use chrono::{DateTime, Utc, TimeZone};
-use chrono::{Datelike, Timelike, Weekday};
-
 
 // The purpose of this module is to clean up the data in the data/bin directory.
 // The raw data contains some continuity errors, which must be fixed.
@@ -35,7 +34,16 @@ pub struct Week {
 }
 
 pub fn prettify_dt(dt: chrono::DateTime<chrono::Utc>) -> String {
-    return format!("{}, {} {} {} {:02}:{:02}:{:02}", dt.weekday(), dt.day(), dt.month(), dt.year(), dt.hour(), dt.minute(), dt.second());
+    return format!(
+        "{}, {} {} {} {:02}:{:02}:{:02}",
+        dt.weekday(),
+        dt.day(),
+        dt.month(),
+        dt.year(),
+        dt.hour(),
+        dt.minute(),
+        dt.second()
+    );
 }
 
 pub fn millisecond_timestamp_to_datetime(ts_millis: i64) -> chrono::DateTime<Utc> {
@@ -54,9 +62,19 @@ pub fn datetime_to_millisecond_timestamp(dt: DateTime<Utc>) -> i64 {
 pub fn find_next_weekend_start(date: DateTime<Utc>) -> DateTime<Utc> {
     let mut date = date;
     loop {
-        if date.weekday() == Weekday::Fri && date.time() <= chrono::NaiveTime::from_hms_opt(22, 0, 0).unwrap() {
+        if date.weekday() == Weekday::Fri
+            && date.time() <= chrono::NaiveTime::from_hms_opt(22, 0, 0).unwrap()
+        {
             // Return the date at precisely 10pm UTC.
-            return date.with_hour(22).unwrap().with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap();
+            return date
+                .with_hour(22)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap()
+                .with_nanosecond(0)
+                .unwrap();
         }
 
         date = date + chrono::Duration::hours(12);
@@ -67,9 +85,19 @@ pub fn find_next_weekend_start(date: DateTime<Utc>) -> DateTime<Utc> {
 pub fn find_next_weekend_end(date: DateTime<Utc>) -> DateTime<Utc> {
     let mut date = date;
     loop {
-        if date.weekday() == Weekday::Sun && date.time() <= chrono::NaiveTime::from_hms_opt(22, 0, 0).unwrap() {
+        if date.weekday() == Weekday::Sun
+            && date.time() <= chrono::NaiveTime::from_hms_opt(22, 0, 0).unwrap()
+        {
             // Return the date at precisely 10pm UTC.
-            return date.with_hour(22).unwrap().with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap();
+            return date
+                .with_hour(22)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap()
+                .with_nanosecond(0)
+                .unwrap();
         }
 
         date = date + chrono::Duration::hours(12);
@@ -88,12 +116,11 @@ pub fn seek_first_time_gt(file: &mut BufReader<File>, start: u64) -> Result<u64,
                 }
 
                 return Ok(timestamp);
-            },
+            }
             Err(_) => return Err("Error reading file".into()),
         }
     }
 }
-
 
 // Takes in a path to a binary file containing data in the format described above, and a timestamp in milliseconds.
 // Returns a tuple containing a vector of 16-byte chunks of data, and the timestamp of the last chunk of data.
@@ -109,21 +136,17 @@ pub fn find_next_week(path: &str, start: u64) -> Result<(Vec<[u8; 16]>, u64), Bo
     let true_start: u64 = seek_first_time_gt(&mut file, start)?;
 
     // Our week chunk starts when the market opens on Sunday.
-    let week_start: i64 = datetime_to_millisecond_timestamp(
-        find_next_weekend_end(
-            millisecond_timestamp_to_datetime(true_start as i64)
-        )
-    );
+    let week_start: i64 = datetime_to_millisecond_timestamp(find_next_weekend_end(
+        millisecond_timestamp_to_datetime(true_start as i64),
+    ));
 
     // Our week chunk ends when the market closes on Friday.
-    let week_end: i64 = datetime_to_millisecond_timestamp(
-        find_next_weekend_start(
-            millisecond_timestamp_to_datetime(week_start as i64)
-        )
-    );
+    let week_end: i64 = datetime_to_millisecond_timestamp(find_next_weekend_start(
+        millisecond_timestamp_to_datetime(week_start as i64),
+    ));
 
     // println!(
-    //     "Finding data... week start: {}, week end: {}", 
+    //     "Finding data... week start: {}, week end: {}",
     //     prettify_dt(millisecond_timestamp_to_datetime(week_start)),
     //     prettify_dt(millisecond_timestamp_to_datetime(week_end))
     // );
@@ -143,11 +166,11 @@ pub fn find_next_week(path: &str, start: u64) -> Result<(Vec<[u8; 16]>, u64), Bo
                 }
 
                 week_buffer.push(buffer);
-            },
+            }
             Err(_) => return Err("Error reading file".into()),
         }
     }
-    
+
     Ok((week_buffer, week_end as u64))
 }
 
@@ -160,14 +183,14 @@ pub fn chunk_data_into_weeks(path: &str) -> Result<Vec<Week>, Box<dyn Error>> {
         let (week, last_timestamp) = {
             match find_next_week(&path, next_start) {
                 Ok((week, last_timestamp)) => (week, last_timestamp),
-                
+
                 // Errors should not be used for control flow, but I'm choosing to do so here out of laziness.
                 // This process is only run once, so it's not a big deal.
                 // This error is expected to occur when we reach the end of the file.
                 Err(e) => {
                     // println!("Error: {}", e);
                     break;
-                },
+                }
             }
         };
 
@@ -223,7 +246,7 @@ pub fn write_weeks_to_file(weeks: &Vec<Week>, path: &str) -> Result<(), Box<dyn 
 pub fn calculate_average_time_between_ticks(week: &Week) -> Result<f64, Box<dyn Error>> {
     let mut total_time_between_ticks: f64 = 0.0;
     let mut total_ticks: f64 = 0.0;
-    
+
     let mut last_timestamp: u64 = 0;
 
     for chunk in &week.data {
@@ -245,7 +268,7 @@ pub fn calculate_average_time_between_ticks(week: &Week) -> Result<f64, Box<dyn 
 
 pub fn calculate_max_time_between_ticks(week: &Week) -> Result<f64, Box<dyn Error>> {
     let mut max_time_between_ticks: f64 = 0.0;
-    
+
     let mut last_timestamp: u64 = 0;
 
     for chunk in &week.data {
@@ -282,15 +305,18 @@ pub fn clean_data(currency_pairs: Vec<&str>) -> Result<(), Box<dyn Error>> {
 
                     // If the max time between ticks is greater than 10 minutes, print it out.
                     if max_time > 600_000.0 {
-                        println!("[Week {}] Max gap: {}s > 10m, discarding this week.", i, max_time / 1000.0);
-                    }
-                    else {
+                        println!(
+                            "[Week {}] Max gap: {}s > 10m, discarding this week.",
+                            i,
+                            max_time / 1000.0
+                        );
+                    } else {
                         let path = format!("data/weekly/{}/week-{}.bin", currency_pair, i);
                         println!("[Week {}] Average time between ticks: {}s, max gap: {}s, saving to file {}", i, avg_time / 1000.0, max_time / 1000.0, path);
                         write_week_to_file(week, &path)?;
                     }
                 }
-            },
+            }
             Err(e) => println!("Error: {}", e),
         };
     }

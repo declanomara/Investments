@@ -28,7 +28,6 @@ struct Response {
     prices: Vec<Price>,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct Price {
     #[serde(deserialize_with = "deserialize_f32_from_string")]
@@ -43,7 +42,6 @@ pub struct Price {
     pub instrument: String,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct Heartbeat {
     pub time: String,
@@ -53,20 +51,29 @@ pub struct Heartbeat {
 #[serde(untagged)]
 pub enum StreamItem {
     Price(Price),
-    Heartbeat(Heartbeat)
+    Heartbeat(Heartbeat),
 }
 
-async fn initialize_price_stream(instruments: &[String], settings: &OandaSettings) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
+async fn initialize_price_stream(
+    instruments: &[String],
+    settings: &OandaSettings,
+) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
     let instrument_list = instruments.join(",");
     let authorization = format!("Bearer {}", &settings.authorization);
     let account_id = &settings.account_id;
 
-    let endpoint = format!("/v3/accounts/{}/pricing/stream?instruments={}", account_id, instrument_list);
+    let endpoint = format!(
+        "/v3/accounts/{}/pricing/stream?instruments={}",
+        account_id, instrument_list
+    );
     let url = format!("{}{}", STREAMING_URL, endpoint);
 
     let mut headers = HeaderMap::new();
-    headers.insert("Authorization", HeaderValue::from_str(authorization.as_str())?);
-    
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_str(authorization.as_str())?,
+    );
+
     let response = reqwest::Client::new()
         .get(&url)
         .headers(headers)
@@ -76,7 +83,7 @@ async fn initialize_price_stream(instruments: &[String], settings: &OandaSetting
     if !response.status().is_success() {
         return Err(format!("Received non-success status code: {}", response.status()).into());
     }
-    
+
     Ok(response)
 }
 
@@ -87,13 +94,12 @@ pub struct PriceStream {
 
 impl PriceStream {
     pub async fn new(instruments: &[String], settings: &OandaSettings) -> Self {
-        let response = initialize_price_stream(instruments, &settings).await.unwrap();
+        let response = initialize_price_stream(instruments, &settings)
+            .await
+            .unwrap();
         let buffer = Vec::new();
 
-        PriceStream {
-            response,
-            buffer
-        }
+        PriceStream { response, buffer }
     }
 
     async fn parse_chunk(&mut self, chunk: &[u8]) -> Vec<StreamItem> {
@@ -124,8 +130,7 @@ impl PriceStream {
         if let Some(chunk) = chunk {
             let items = self.parse_chunk(&chunk).await;
             return Ok(items);
-        }
-        else {
+        } else {
             return Err("Received empty chunk".into());
         }
     }
@@ -141,7 +146,7 @@ impl Iterator for PriceStream {
                 for item in items {
                     return Some(Ok(item));
                 }
-            },
+            }
             Err(err) => {
                 return Some(Err(err));
             }
@@ -168,18 +173,30 @@ pub struct LoggingPriceStream {
 }
 
 impl LoggingPriceStream {
-    pub async fn new(instruments: &[String], log_path: &str, timeout_duration: u64, settings: &OandaSettings) -> Self {
-        let response = initialize_price_stream(instruments, &settings).await.unwrap();
+    pub async fn new(
+        instruments: &[String],
+        log_path: &str,
+        timeout_duration: u64,
+        settings: &OandaSettings,
+    ) -> Self {
+        let response = initialize_price_stream(instruments, &settings)
+            .await
+            .unwrap();
         let buffer = Vec::new();
 
         let raw_log_path = format!("{}/raw.log", log_path);
         let mut options = std::fs::OpenOptions::new();
-        let raw_log_file = options.append(true).create(true).open(raw_log_path).unwrap_or_else(|err| {
-            panic!("Failed to open raw log file: {}", err);
-        });
+        let raw_log_file = options
+            .append(true)
+            .create(true)
+            .open(raw_log_path)
+            .unwrap_or_else(|err| {
+                panic!("Failed to open raw log file: {}", err);
+            });
         let raw_log_writer = std::io::BufWriter::new(raw_log_file);
-        
-        let bin_log_writers: std::collections::HashMap<String, std::io::BufWriter<std::fs::File>>= std::collections::HashMap::new();
+
+        let bin_log_writers: std::collections::HashMap<String, std::io::BufWriter<std::fs::File>> =
+            std::collections::HashMap::new();
 
         LoggingPriceStream {
             response,
@@ -202,19 +219,26 @@ impl LoggingPriceStream {
     pub async fn log_price(&mut self, price: &Price) {
         // TODO: Parse timestamp from price
         let timestamp: u64 = 0;
-    
-        let bin_log_writer = self.bin_log_writers.entry(price.instrument.clone()).or_insert_with(|| {
-            let path = format!("{}/bin/{}.bin", self.log_path, price.instrument);
-            let mut options = std::fs::OpenOptions::new();
-            let file = options.append(true).create(true).open(path).unwrap_or_else(|err| {
-                panic!("Failed to open binary log file: {}", err);
+
+        let bin_log_writer = self
+            .bin_log_writers
+            .entry(price.instrument.clone())
+            .or_insert_with(|| {
+                let path = format!("{}/bin/{}.bin", self.log_path, price.instrument);
+                let mut options = std::fs::OpenOptions::new();
+                let file = options
+                    .append(true)
+                    .create(true)
+                    .open(path)
+                    .unwrap_or_else(|err| {
+                        panic!("Failed to open binary log file: {}", err);
+                    });
+
+                // TODO: Determine optimal buffer size
+                let writer = std::io::BufWriter::with_capacity(8 * 32, file);
+                writer
             });
 
-            // TODO: Determine optimal buffer size
-            let writer = std::io::BufWriter::with_capacity(8 * 32, file);
-            writer
-        });
-    
         if let Err(err) = bin_log_writer.write_all(&timestamp.to_be_bytes()) {
             panic!("Failed to write timestamp to binary log file: {}", err);
         }
@@ -252,44 +276,43 @@ impl LoggingPriceStream {
         items
     }
 
-    pub async fn next_items(&mut self, timeout_duration: u64) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
+    pub async fn next_items(
+        &mut self,
+        timeout_duration: u64,
+    ) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
         let chunk = timeout(
             std::time::Duration::from_millis(timeout_duration),
-            self.response.chunk()
-        ).await??; // ?? because reqwest may return an error, and timeout may return an error
+            self.response.chunk(),
+        )
+        .await??; // ?? because reqwest may return an error, and timeout may return an error
 
         if let Some(chunk) = chunk {
             self.log_raw(&chunk).await;
             let items = self.parse_chunk(&chunk).await;
             return Ok(items);
-        }
-        else {
+        } else {
             return Err("Received empty chunk".into());
         }
     }
-
 }
-
 
 impl Iterator for LoggingPriceStream {
     type Item = Result<StreamItem, Box<dyn std::error::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let items = futures::executor::block_on(
-            self.next_items(self.timeout_duration)
-        );
+        let items = futures::executor::block_on(self.next_items(self.timeout_duration));
         match items {
             Ok(items) => {
                 for item in items {
                     match &item {
                         StreamItem::Price(price) => {
                             futures::executor::block_on(self.log_price(price));
-                        },
+                        }
                         _ => {}
                     }
                     return Some(Ok(item));
                 }
-            },
+            }
             Err(err) => {
                 return Some(Err(err));
             }
@@ -298,17 +321,25 @@ impl Iterator for LoggingPriceStream {
     }
 }
 
-
-pub async fn get_latest_prices(instruments: &[String], settings: &OandaSettings) -> Result<Vec<Price>, Box<dyn std::error::Error>> {
+pub async fn get_latest_prices(
+    instruments: &[String],
+    settings: &OandaSettings,
+) -> Result<Vec<Price>, Box<dyn std::error::Error>> {
     let instrument_list = instruments.join(",");
     let authorization = format!("Bearer {}", &settings.authorization);
     let account_id = &settings.account_id;
-    
-    let endpoint = format!("/v3/accounts/{}/pricing?instruments={}", account_id, instrument_list);
+
+    let endpoint = format!(
+        "/v3/accounts/{}/pricing?instruments={}",
+        account_id, instrument_list
+    );
     let url = format!("{}{}", API_URL, endpoint);
-    
+
     let mut headers = HeaderMap::new();
-    headers.insert("Authorization", HeaderValue::from_str(authorization.as_str())?);
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_str(authorization.as_str())?,
+    );
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
     let body = reqwest::Client::new()
@@ -325,15 +356,22 @@ pub async fn get_latest_prices(instruments: &[String], settings: &OandaSettings)
     Ok(prices)
 }
 
-pub async fn place_market_order(instrument: &str, units: f64, settings: &OandaSettings) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn place_market_order(
+    instrument: &str,
+    units: f64,
+    settings: &OandaSettings,
+) -> Result<(), Box<dyn std::error::Error>> {
     let authorization = format!("Bearer {}", &settings.authorization);
     let account_id = &settings.account_id;
-    
+
     let endpoint = format!("/v3/accounts/{}/orders", account_id);
     let url = format!("{}{}", API_URL, endpoint);
 
     let mut headers = HeaderMap::new();
-    headers.insert("Authorization", HeaderValue::from_str(authorization.as_str())?);
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_str(authorization.as_str())?,
+    );
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
     let body = format!("{{\"order\": {{\"units\": \"{}\", \"instrument\": \"{}\", \"timeInForce\": \"FOK\", \"type\": \"MARKET\", \"positionFill\": \"DEFAULT\"}}}}", units, instrument);
@@ -377,7 +415,10 @@ pub struct PositionDetails {
 impl Position {
     pub fn units(&self) -> f64 {
         let net = self.long.units + self.short.units;
-        println!("Net units: {}+{}={}", self.long.units, self.short.units, net);
+        println!(
+            "Net units: {}+{}={}",
+            self.long.units, self.short.units, net
+        );
         net
     }
 
@@ -402,7 +443,9 @@ where
     s.parse::<f32>().map_err(serde::de::Error::custom)
 }
 
-pub async fn get_positions(settings: &OandaSettings) -> Result<Vec<Position>, Box<dyn std::error::Error>> {
+pub async fn get_positions(
+    settings: &OandaSettings,
+) -> Result<Vec<Position>, Box<dyn std::error::Error>> {
     let authorization = format!("Bearer {}", &settings.authorization);
     let account_id = &settings.account_id;
 
@@ -410,7 +453,10 @@ pub async fn get_positions(settings: &OandaSettings) -> Result<Vec<Position>, Bo
     let url = format!("{}{}", API_URL, endpoint);
 
     let mut headers = HeaderMap::new();
-    headers.insert("Authorization", HeaderValue::from_str(authorization.as_str())?);
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_str(authorization.as_str())?,
+    );
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
     let response = reqwest::Client::new()
@@ -436,7 +482,10 @@ pub async fn get_positions(settings: &OandaSettings) -> Result<Vec<Position>, Bo
     Ok(positions)
 }
 
-pub async fn get_position(instrument: &str, settings: &OandaSettings) -> Result<Position, Box<dyn std::error::Error>> {
+pub async fn get_position(
+    instrument: &str,
+    settings: &OandaSettings,
+) -> Result<Position, Box<dyn std::error::Error>> {
     let positions = get_positions(settings).await?;
     let position = positions.into_iter().find(|p| p.instrument == instrument);
 
