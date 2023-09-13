@@ -43,8 +43,41 @@ fn handle_error(e: Box<dyn std::error::Error>) {
     }
 }
 
+fn get_instruments() -> Vec<String> {
+    vec![
+        "EUR_USD".to_string(),
+        "USD_JPY".to_string(),
+        "GBP_USD".to_string(),
+        "AUD_USD".to_string(),
+        "USD_CHF".to_string(),
+        "USD_CAD".to_string(),
+        "EUR_JPY".to_string(),
+        "EUR_GBP".to_string(),
+        "EUR_CHF".to_string(),
+        "EUR_SEK".to_string(),
+        "EUR_NOK".to_string(),
+        "EUR_AUD".to_string(),
+        "GBP_JPY".to_string(),
+        "GBP_CHF".to_string(),
+        "GBP_AUD".to_string(),
+        "AUD_JPY".to_string(),
+        "CHF_JPY".to_string(),
+        "NZD_USD".to_string(),
+        "NZD_JPY".to_string(),
+        "NZD_CAD".to_string(),
+        "AUD_CAD".to_string(),
+        "CAD_JPY".to_string(),
+        "USD_SGD".to_string(),
+        "USD_HKD".to_string(),
+        "USD_ZAR".to_string(),
+        "USD_TRY".to_string(),
+        "USD_MXN".to_string(),
+        "USD_NOK".to_string(),
+    ]
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Handle SIGINT
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
@@ -52,23 +85,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         r.store(false, Ordering::SeqCst);
     })?;
 
+    // Ensure output directory exists
     let log_path = "data/";
     logging::info("Validating output directory...");
-
     validate_output_directory(log_path)?;
 
+    // Read settings
     let settings = quantlib::util::read_settings().unwrap_or_else(|err| {
         logging::error(&format!("Failed to read settings: {}", err));
         std::process::exit(1);
     });
 
+    let instruments = get_instruments();
     let mut logging_price_stream = quantlib::oanda::LoggingPriceStream::new(
-        &["EUR_USD".to_string()],
+        instruments,
         log_path,
         10_000, // 10 second timeout, we expect a heartbeat every 5 seconds
         &settings.oanda,
     )
-    .await;
+    .await?;
 
     while let Some(item) = logging_price_stream.next() {
         match item {
