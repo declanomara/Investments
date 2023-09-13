@@ -168,6 +168,7 @@ pub struct LoggingPriceStream<'a> {
     // Used for streaming data from OANDA
     pub response: reqwest::Response,
     pub buffer: Vec<u8>,
+    pub buffered_items: std::collections::VecDeque<StreamItem>,
 
     // Config options
     pub log_path: String,
@@ -191,6 +192,7 @@ impl<'a> LoggingPriceStream<'a> {
         // Open connection to OANDA
         let response = initialize_price_stream(&instruments, &settings).await?;
         let buffer = Vec::new();
+        let buffered_items = std::collections::VecDeque::new();
 
         // Create buffered writers for raw data
         let raw_log_path = format!("{}/raw.log", log_path);
@@ -206,6 +208,7 @@ impl<'a> LoggingPriceStream<'a> {
         Ok(LoggingPriceStream {
             response,
             buffer,
+            buffered_items,
 
             timeout_duration,
             settings,
@@ -359,27 +362,40 @@ impl<'a> Iterator for LoggingPriceStream<'a> {
     type Item = Result<StreamItem, Box<dyn std::error::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // If there are any buffered items, return them first
+        if let Some(item) = self.buffered_items.pop_front() {
+            return Some(Ok(item));
+        }
+
+        // Otherwise, get next chunk from OANDA and parse it
         let items = futures::executor::block_on(self.next_items(self.timeout_duration));
         match items {
             Ok(items) => {
-                // TODO: Handle multiple items in a single chunk
-                // println!("Received {} items", items.len());
                 for item in items {
+                    // Log prices to binary files
                     match &item {
                         StreamItem::Price(price) => {
                             futures::executor::block_on(self.log_price(price));
                         }
                         _ => {}
                     }
-                    // println!("Returning item: {:?}", item);
-                    return Some(Ok(item));
+
+                    // Add all items to buffer to be returned by next() calls
+                    self.buffered_items.push_back(item);
                 }
             }
             Err(err) => {
                 return Some(Err(err));
             }
         }
-        None
+
+        // Return first item from buffer, if any
+        if let Some(item) = self.buffered_items.pop_front() {
+            return Some(Ok(item));
+        }
+        else {
+            return None;
+        }
     }
 }
 
