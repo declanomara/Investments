@@ -27,3 +27,6 @@ venv/
 # Ignore any reports generated during research
 reports/
 *.csv
+
+# Ignore scratch files
+scratch/
