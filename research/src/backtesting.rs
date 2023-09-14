@@ -1,24 +1,37 @@
+use csv;
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::error::Error;
-use csv;
-
 
 // Parses a 16 byte chunk of binary price data.
 // The first 8 bytes are the timestamp, in milliseconds since the epoch.
 // The next 4 bytes are the bid price, as a f32 (little endian).
 // The last 4 bytes are the ask price, as a f32 (little endian).
-pub fn parse_chunk(chunk: &[u8]) -> Result<(u64, f32, f32), Box<dyn Error>> {
+pub fn parse_chunk(
+    chunk: &[u8],
+    is_little_endian: bool,
+) -> Result<(u64, f32, f32), Box<dyn Error>> {
     let timestamp_bytes: [u8; 8] = chunk[0..8].try_into()?;
-    let timestamp = u64::from_le_bytes(timestamp_bytes);
-
     let bid_bytes: [u8; 4] = chunk[8..12].try_into()?;
     let ask_bytes: [u8; 4] = chunk[12..16].try_into()?;
-    let bid = f32::from_le_bytes(bid_bytes);
-    let ask = f32::from_le_bytes(ask_bytes);
+
+    let timestamp: u64;
+    let bid: f32;
+    let ask: f32;
+
+    if is_little_endian {
+        timestamp = u64::from_le_bytes(timestamp_bytes);
+        bid = f32::from_le_bytes(bid_bytes);
+        ask = f32::from_le_bytes(ask_bytes);
+    } else {
+        timestamp = u64::from_be_bytes(timestamp_bytes);
+        bid = f32::from_be_bytes(bid_bytes);
+        ask = f32::from_be_bytes(ask_bytes);
+    }
+
     Ok((timestamp, bid, ask))
 }
-
+#[derive(Debug)]
 pub struct HistoricalPrice {
     pub time: u64,
     pub bid: f32,
@@ -28,14 +41,22 @@ pub struct HistoricalPrice {
 pub struct HistoricalPriceStream {
     file: BufReader<File>,
     buffer: [u8; 16],
+    is_little_endian: bool,
 }
 
 impl HistoricalPriceStream {
-    pub fn new(path: &str) -> Result<HistoricalPriceStream, Box<dyn Error>> {
+    pub fn new(
+        path: &str,
+        is_little_endian: bool,
+    ) -> Result<HistoricalPriceStream, Box<dyn Error>> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
         let buffer: [u8; 16] = [0; 16];
-        Ok(HistoricalPriceStream { file, buffer })
+        Ok(HistoricalPriceStream {
+            file,
+            buffer,
+            is_little_endian,
+        })
     }
 }
 
@@ -44,20 +65,18 @@ impl Iterator for HistoricalPriceStream {
     type Item = HistoricalPrice;
     fn next(&mut self) -> Option<Self::Item> {
         match self.file.read_exact(&mut self.buffer) {
-            Ok(_) => {
-                match parse_chunk(&self.buffer) {
-                    Ok((timestamp, bid, ask)) => {
-                        let price = HistoricalPrice {
-                            time: timestamp,
-                            bid: bid.into(),
-                            ask: ask.into(),
-                        };
-                        Some(price)
-                    },
-                    Err(e) => {
-                        println!("Error: {}", e);
-                        None
-                    },
+            Ok(_) => match parse_chunk(&self.buffer, self.is_little_endian) {
+                Ok((timestamp, bid, ask)) => {
+                    let price = HistoricalPrice {
+                        time: timestamp,
+                        bid: bid.into(),
+                        ask: ask.into(),
+                    };
+                    Some(price)
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                    None
                 }
             },
             Err(_) => None,
@@ -84,7 +103,7 @@ pub struct ExponentialMovingAverage {
     slow_ma: f64,
     fast_ma: f64,
 
-    direction: i32
+    direction: i32,
 }
 
 impl ExponentialMovingAverage {
@@ -110,15 +129,19 @@ impl AlphaModel for ExponentialMovingAverage {
         }
 
         // Calculate the new moving averages
-        let new_slow_ma = self.slow_ma_weight * price.ask as f64 + (1.0 - self.slow_ma_weight) * self.slow_ma;
-        let new_fast_ma = self.fast_ma_weight * price.ask as f64 + (1.0 - self.fast_ma_weight) * self.fast_ma;
+        let new_slow_ma =
+            self.slow_ma_weight * price.ask as f64 + (1.0 - self.slow_ma_weight) * self.slow_ma;
+        let new_fast_ma =
+            self.fast_ma_weight * price.ask as f64 + (1.0 - self.fast_ma_weight) * self.fast_ma;
 
         // Direction is 1 if the fast moving average is above the slow moving average, -1 if the fast moving average is below the slow moving average
         let new_direction = if new_fast_ma > new_slow_ma { 1 } else { -1 };
 
         // If the direction has changed, generate a signal
         if new_direction != self.direction {
-            signal = Some(Signal { forecast: new_direction as f64 });
+            signal = Some(Signal {
+                forecast: new_direction as f64,
+            });
         }
 
         self.slow_ma = new_slow_ma;
@@ -136,22 +159,18 @@ impl AlphaModel for ExponentialMovingAverage {
     }
 
     fn generate_headers(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        Ok(vec![
-            "slow_ma".to_string(),
-            "fast_ma".to_string(),
-        ])
+        Ok(vec!["slow_ma".to_string(), "fast_ma".to_string()])
     }
-
 }
 
 pub enum BacktestMetric {
     Float(f64),
     Int(i64),
     String(String),
-    Bool(bool)
+    Bool(bool),
 }
 pub struct Row {
-    pub data: Vec<BacktestMetric>
+    pub data: Vec<BacktestMetric>,
 }
 pub struct Backtest {
     // Input parameters
@@ -242,7 +261,6 @@ impl Backtest {
                 self.buy(signal.forecast, price);
             }
         }
-        
         // If the signal is negative, sell according to the signal confidence
         else {
             if self.position_size > 0.0 {
@@ -285,10 +303,12 @@ impl Backtest {
 
     // Helper functions
 
-    fn generate_row(&self, signal: &Option<Signal>, price: &HistoricalPrice) -> Result<Row, Box<dyn Error>> {
-        let mut row = Row {
-            data: Vec::new(),
-        };
+    fn generate_row(
+        &self,
+        signal: &Option<Signal>,
+        price: &HistoricalPrice,
+    ) -> Result<Row, Box<dyn Error>> {
+        let mut row = Row { data: Vec::new() };
 
         // Convert the signal to a float with a default value of 0.0
         let signal_value = match signal {
@@ -300,9 +320,11 @@ impl Backtest {
         row.data.push(BacktestMetric::Float(price.time as f64));
         row.data.push(BacktestMetric::Float(price.bid as f64));
         row.data.push(BacktestMetric::Float(price.ask as f64));
-        row.data.push(BacktestMetric::Float(self.total_value(price)));
+        row.data
+            .push(BacktestMetric::Float(self.total_value(price)));
         row.data.push(BacktestMetric::Float(self.cash_value()));
-        row.data.push(BacktestMetric::Float(self.position_value(price)));
+        row.data
+            .push(BacktestMetric::Float(self.position_value(price)));
         row.data.push(BacktestMetric::Float(signal_value));
 
         // Add the model-specific columns
@@ -320,8 +342,8 @@ impl Backtest {
             "value".to_string(),
             "cash".to_string(),
             "position".to_string(),
-            "signal".to_string()
-            ];
+            "signal".to_string(),
+        ];
 
         headers.extend(self.alpha_model.generate_headers()?);
         Ok(headers)

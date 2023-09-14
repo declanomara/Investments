@@ -7,4 +7,9 @@ edition = "2021"
 
 [dependencies]
 quantlib = { path = "../quantlib" }
+log = "~0.4"
 tokio = { version = "1", features = ["full"] }
+ctrlc = "3.1.5"
+
+[profile.release]
+debug = true
