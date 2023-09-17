@@ -38,7 +38,8 @@ pub struct Price {
     #[serde(rename = "closeoutAsk")]
     pub ask: f32,
 
-    pub time: String,
+    #[serde(deserialize_with = "deserialize_time_in_millis_from_string")]
+    pub time: u64,
     pub instrument: String,
 }
 
@@ -114,12 +115,11 @@ impl PriceStream {
         while let Some(result) = stream.next() {
             match result {
                 Ok(item) => {
-                    // println!("Buffer: {:?}", std::str::from_utf8(&self.buffer).unwrap());
                     items.push(item);
                 }
                 Err(err) => {
                     println!("Error parsing JSON: {}", err);
-                    println!("Buffer: {:?}", std::str::from_utf8(&self.buffer).unwrap());
+                    println!("{:?}", err);
                 }
             }
         }
@@ -163,6 +163,19 @@ impl Iterator for PriceStream {
 // Same as PriceStream, but also logs to data files:
 // - raw.log: Raw JSON data from Oanda
 // - bin/{instrument}.bin: Binary data for each instrument including timestamp, bid, and ask
+
+#[derive(Debug)]
+pub struct EmptyChunkError {
+    pub message: String,
+}
+
+impl std::fmt::Display for EmptyChunkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "EmptyChunkError: {}", self.message)
+    }
+}
+
+impl std::error::Error for EmptyChunkError {}
 
 pub struct LoggingPriceStream<'a> {
     // Used for streaming data from OANDA
@@ -237,8 +250,7 @@ impl<'a> LoggingPriceStream<'a> {
     }
 
     pub async fn log_price(&mut self, price: &Price) {
-        // TODO: Parse timestamp from price
-        let timestamp: u64 = 0;
+        let timestamp: u64 = price.time;
 
         // Attempt to get buffered writer for instrument from hashmap, otherwise create a new one
         let bin_log_writer = self
@@ -297,28 +309,15 @@ impl<'a> LoggingPriceStream<'a> {
                     last_parsed_index = stream.byte_offset();
                 }
                 Err(err) => {
-                    println!("Error parsing JSON: {}", err);
-                    println!("Buffer: {}", std::str::from_utf8(&self.buffer).unwrap());
+                    log::debug!("Error parsing JSON: {:?}", err);
+                    log::debug!("This is likely caused by a chunk boundary, the next chunk will be parsed correctly.");
                 }
+
             }
         }
 
         // Remove parsed JSON strings from buffer
-        // self.buffer.drain(..last_parsed_index)
-        
-        // TODO: Remove this debug code and replace with above line
-        let total_buffer = std::str::from_utf8(&self.buffer).unwrap().to_string();
-        let parsed: Vec<u8> = self.buffer.drain(..last_parsed_index).collect();
-        let parsed = std::str::from_utf8(parsed.as_slice()).unwrap();
-        let remaining_buffer = std::str::from_utf8(&self.buffer).unwrap();
-        
-        if remaining_buffer != "\n" {
-            println!("Parsed buffer unexpectedly.");
-            println!("Total buffer: {:?}", total_buffer);
-            println!("Parsed {} bytes", last_parsed_index);
-            println!("Bytes parsed: {:?}", parsed);
-            println!("Remaining buffer: {:?}", remaining_buffer);
-        }
+        self.buffer.drain(..last_parsed_index);
 
         items
     }
@@ -353,7 +352,9 @@ impl<'a> LoggingPriceStream<'a> {
             let items = self.parse_chunk(&chunk).await;
             return Ok(items);
         } else {
-            return Err("Received empty chunk".into());
+            return Err(
+                Box::new(EmptyChunkError{message: "Received empty chunk from OANDA".to_string()})
+            );
         }
     }
 }
@@ -519,6 +520,20 @@ where
 {
     let s: &str = serde::Deserialize::deserialize(deserializer)?;
     s.parse::<f32>().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_time_in_millis_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+    // Parse time string into milliseconds since UNIX epoch
+    // OANDA timestamps are in RFC3339 format: "2023-09-15T20:58:00.145575162Z"
+    let datetime = chrono::DateTime::parse_from_rfc3339(s)
+        .map_err(|e| serde::de::Error::custom(format!("Failed to parse datetime: {}", e)))?;
+    let millis_since_epoch = datetime.timestamp_millis() as u64;
+    Ok(millis_since_epoch)
 }
 
 pub async fn get_positions(

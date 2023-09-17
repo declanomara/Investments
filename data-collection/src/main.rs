@@ -30,19 +30,6 @@ fn validate_output_directory(path: &str) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn handle_error(e: Box<dyn std::error::Error>) {
-    match e.downcast_ref::<tokio::time::error::Elapsed>() {
-        Some(_elapsed_error) => {
-            // Handle the elapsed error here
-            log::error!("Connection timed out.");
-        }
-        None => {
-            // Handle other errors here
-            log::error!("{}", e);
-        }
-    }
-}
-
 fn get_instruments() -> Vec<String> {
     vec![
         "AUD_CAD".to_string(),
@@ -167,7 +154,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 log::debug!("Heartbeat received.");
             }
             Err(e) => {
-                handle_error(e);
+                if let Some(_elapsed_error) = e.downcast_ref::<tokio::time::error::Elapsed>() {
+                    // Handle the elapsed error here
+                    log::error!("Connection timed out, reconnecting...");
+                    logging_price_stream.refresh_connection().await?;
+                } else if let Some(_empty_chunk_error) = e.downcast_ref::<quantlib::oanda::EmptyChunkError>() {
+                    // Handle the empty chunk error here
+                    log::error!("Empty chunk received, reconnecting...");
+                    logging_price_stream.refresh_connection().await?;
+                } else
+                {
+                    // Handle other errors here
+                    log::error!("{}", e);
+                }
             }
         }
 
