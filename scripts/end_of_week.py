@@ -33,11 +33,11 @@ def archive_raw_data(data_dir: Path, archive_dir: Path, week: int, year: int, ve
         print(f'Archived raw data to {raw_archive_file}')
 
 
-def archive_binary_data(data_dir: Path, archive_dir: Path, week: int, year: int, verbose: bool = False) -> None:
+def archive_binary_data(data_dir: Path, archive_dir: Path, week: int, year: int, verbose: bool = False, force: bool = False) -> None:
     # Archive the binary data
     archived_bin_dir = archive_dir / 'weekly'
     print(f'Archiving binary data to {archived_bin_dir}')
-    
+
     bin_dir = Path(data_dir) / 'bin'
     for bin_file in bin_dir.iterdir():
         # Get the instrument name from the file name
@@ -49,8 +49,11 @@ def archive_binary_data(data_dir: Path, archive_dir: Path, week: int, year: int,
         archived_instrument_dir.mkdir(parents=True, exist_ok=True)
         
         if archived_bin_file.exists():
-            print(f'Archived binary data for {instrument} already exists, rerun with -f to overwrite')
-            continue
+            if force:
+                print(f'Overwriting archived binary data for {instrument}')
+            else:
+                print(f'Archived binary data for {instrument} already exists, rerun with -f to overwrite')
+                continue
 
         # Move the binary file
         shutil.move(bin_file, archived_bin_file)
@@ -69,7 +72,7 @@ def ensure_archive_dir(archive_dir: Path) -> None:
     raw_dir.mkdir(exist_ok=True)
 
 
-def archive_data(data_dir: str, archive_dir: str, verbose: bool, week: int = None, year: int = None) -> None:
+def archive_data(data_dir: str, archive_dir: str, verbose: bool, week: int = None, year: int = None, force: bool = False) -> None:
     calculated_year, calculated_week, _ = datetime.date.today().isocalendar()
     if week is None:
         week = calculated_week
@@ -86,7 +89,7 @@ def archive_data(data_dir: str, archive_dir: str, verbose: bool, week: int = Non
     archive_raw_data(data_dir, archive_dir, week, year, verbose)
 
     # Archive the binary data
-    archive_binary_data(data_dir, archive_dir, week, year, verbose)
+    archive_binary_data(data_dir, archive_dir, week, year, verbose, force)
     
 
 def main() -> None:
@@ -97,6 +100,7 @@ def main() -> None:
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('-w', '--week', type=int, help='Week number to archive')
     parser.add_argument('-y', '--year', type=int, help='Year number to archive')
+    parser.add_argument('-f', '--force', action='store_true', help='Force overwrite of existing files')
 
     try:
         args = parser.parse_args()
@@ -105,7 +109,7 @@ def main() -> None:
         parser.print_usage()
         sys.exit(1)
 
-    archive_data(args.data_dir, args.archive_dir, args.verbose, week=args.week, year=args.year)
+    archive_data(args.data_dir, args.archive_dir, args.verbose, week=args.week, year=args.year, force=args.force)
 
 
 if __name__ == '__main__':
