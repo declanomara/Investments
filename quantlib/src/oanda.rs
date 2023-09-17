@@ -38,7 +38,8 @@ pub struct Price {
     #[serde(rename = "closeoutAsk")]
     pub ask: f32,
 
-    pub time: String,
+    #[serde(deserialize_with = "deserialize_time_in_millis_from_string")]
+    pub time: u64,
     pub instrument: String,
 }
 
@@ -249,8 +250,7 @@ impl<'a> LoggingPriceStream<'a> {
     }
 
     pub async fn log_price(&mut self, price: &Price) {
-        // TODO: Parse timestamp from price
-        let timestamp: u64 = 0;
+        let timestamp: u64 = price.time;
 
         // Attempt to get buffered writer for instrument from hashmap, otherwise create a new one
         let bin_log_writer = self
@@ -520,6 +520,20 @@ where
 {
     let s: &str = serde::Deserialize::deserialize(deserializer)?;
     s.parse::<f32>().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_time_in_millis_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+    // Parse time string into milliseconds since UNIX epoch
+    // OANDA timestamps are in RFC3339 format: "2023-09-15T20:58:00.145575162Z"
+    let datetime = chrono::DateTime::parse_from_rfc3339(s)
+        .map_err(|e| serde::de::Error::custom(format!("Failed to parse datetime: {}", e)))?;
+    let millis_since_epoch = datetime.timestamp_millis() as u64;
+    Ok(millis_since_epoch)
 }
 
 pub async fn get_positions(
