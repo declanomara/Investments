@@ -6,7 +6,7 @@ use std::error::Error;
 async fn main() -> Result<(), Box<dyn Error>> {
     let settings = quantlib::util::read_settings()?;
     let price_stream =
-        quantlib::oanda::PriceStream::new(&["EUR_USD".to_string()], &settings.oanda).await;
+        quantlib::oanda::PriceStream::new(vec!["EUR_USD".to_string()], &settings.oanda).await;
     let mut portfolio_builder = PortfolioBuilder::new(&settings);
     portfolio_builder.update_positions().await?; // TODO: this should be done automatically by the portfolio builder
     let mut ema = quantlib::models::ExponentialMovingAverage::new("EUR_USD".to_string(), 0.1, 0.2);
