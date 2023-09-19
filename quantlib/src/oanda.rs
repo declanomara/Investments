@@ -318,7 +318,7 @@ impl<'a> LoggingPriceStream<'a> {
         }
 
         // Remove parsed JSON strings from buffer
-        self.buffer.drain(..last_parsed_index);
+        self.buffer = self.buffer[last_parsed_index..].to_vec();
 
         items
     }
