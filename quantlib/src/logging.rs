@@ -21,7 +21,7 @@ pub fn configure_logger(logfile: &str) -> Result<(), Box<dyn Error>>{
         .build(Root::builder()
             .appender("logfile")
             .appender("stdout")
-            .build(LevelFilter::Info))?;
+            .build(LevelFilter::Trace))?;
 
     log4rs::init_config(config)?;
     Ok(())

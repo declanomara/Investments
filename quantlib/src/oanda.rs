@@ -302,6 +302,7 @@ impl<'a> LoggingPriceStream<'a> {
 
         let mut items = Vec::new();
         let mut last_parsed_index = 0;
+        log::trace!("Streaming JSON from deserializer...");
         while let Some(result) = stream.next() {
             match result {
                 Ok(item) => {
@@ -327,6 +328,7 @@ impl<'a> LoggingPriceStream<'a> {
         timeout_duration: u64,
     ) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
         // Get next chunk from OANDA, timeout after timeout_duration milliseconds
+        log::trace!("Getting next chunk from OANDA...");
         let chunk = timeout(
             std::time::Duration::from_millis(timeout_duration),
             self.response.chunk(),
@@ -348,7 +350,7 @@ impl<'a> LoggingPriceStream<'a> {
             // items.extend(second_items);
             // return Ok(items);
 
-
+            log::trace!("Parsing chunk...");
             let items = self.parse_chunk(&chunk).await;
             return Ok(items);
         } else {
@@ -365,6 +367,7 @@ impl<'a> Iterator for LoggingPriceStream<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         // If there are any buffered items, return them first
         if let Some(item) = self.buffered_items.pop_front() {
+            log::trace!("Returning buffered item...");
             return Some(Ok(item));
         }
 
