@@ -1,64 +1,13 @@
-use reqwest::header::{HeaderMap, HeaderValue};
-
-use serde::Deserialize;
 use serde_json::Deserializer;
-
+use reqwest::header::{HeaderMap, HeaderValue};
+use std::io::Write;
 use tokio::time::timeout;
 
-use std::io::Write;
+use crate::oanda::errors::EmptyChunkError;
+use crate::oanda::objects::{STREAMING_URL, OandaSettings, Price, StreamItem};
 
-pub const STREAMING_URL: &str = "https://stream-fxpractice.oanda.com";
-pub const API_URL: &str = "https://api-fxpractice.oanda.com";
 
-#[derive(Debug, Deserialize)]
-pub struct Settings {
-    pub instruments: Vec<String>,
-    pub units: f64,
-    pub oanda: OandaSettings,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct OandaSettings {
-    pub account_id: String,
-    pub authorization: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Response {
-    prices: Vec<Price>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Price {
-    #[serde(deserialize_with = "deserialize_f32_from_string")]
-    #[serde(rename = "closeoutBid")]
-    pub bid: f32,
-
-    #[serde(deserialize_with = "deserialize_f32_from_string")]
-    #[serde(rename = "closeoutAsk")]
-    pub ask: f32,
-
-    #[serde(deserialize_with = "deserialize_time_in_millis_from_string")]
-    pub time: u64,
-    pub instrument: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Heartbeat {
-    pub time: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum StreamItem {
-    Price(Price),
-    Heartbeat(Heartbeat),
-}
-
-async fn initialize_price_stream(
-    instruments: &Vec<String>,
-    settings: &OandaSettings,
-) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
+async fn initialize_price_stream(instruments: &Vec<String>, settings: &OandaSettings) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
     let instrument_list = instruments.join(",");
     let authorization = format!("Bearer {}", &settings.authorization);
     let account_id = &settings.account_id;
@@ -164,18 +113,6 @@ impl Iterator for PriceStream {
 // - raw.log: Raw JSON data from Oanda
 // - bin/{instrument}.bin: Binary data for each instrument including timestamp, bid, and ask
 
-#[derive(Debug)]
-pub struct EmptyChunkError {
-    pub message: String,
-}
-
-impl std::fmt::Display for EmptyChunkError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "EmptyChunkError: {}", self.message)
-    }
-}
-
-impl std::error::Error for EmptyChunkError {}
 
 pub struct LoggingPriceStream<'a> {
     // Used for streaming data from OANDA
@@ -273,7 +210,7 @@ impl<'a> LoggingPriceStream<'a> {
                 let writer = std::io::BufWriter::with_capacity(8 * 1024, file);
                 writer
             });
-        
+
         // TODO: Standardize Price to binary format conversion in quantlib
         if let Err(err) = bin_log_writer.write_all(&timestamp.to_be_bytes()) {
             panic!("Failed to write timestamp to binary log file: {}", err);
@@ -313,12 +250,11 @@ impl<'a> LoggingPriceStream<'a> {
                     log::debug!("Error parsing JSON: {:?}", err);
                     log::debug!("This is likely caused by a chunk boundary, the next chunk will be parsed correctly.");
                 }
-
             }
         }
 
         // Remove parsed JSON strings from buffer
-        self.buffer.drain(..last_parsed_index);
+        self.buffer = self.buffer[last_parsed_index..].to_vec();
 
         items
     }
@@ -354,9 +290,9 @@ impl<'a> LoggingPriceStream<'a> {
             let items = self.parse_chunk(&chunk).await;
             return Ok(items);
         } else {
-            return Err(
-                Box::new(EmptyChunkError{message: "Received empty chunk from OANDA".to_string()})
-            );
+            return Err(Box::new(EmptyChunkError {
+                message: "Received empty chunk from OANDA".to_string(),
+            }));
         }
     }
 }
@@ -396,198 +332,8 @@ impl<'a> Iterator for LoggingPriceStream<'a> {
         // Return first item from buffer, if any
         if let Some(item) = self.buffered_items.pop_front() {
             return Some(Ok(item));
-        }
-        else {
+        } else {
             return None;
         }
     }
-}
-
-pub async fn get_latest_prices(
-    instruments: &[String],
-    settings: &OandaSettings,
-) -> Result<Vec<Price>, Box<dyn std::error::Error>> {
-    let instrument_list = instruments.join(",");
-    let authorization = format!("Bearer {}", &settings.authorization);
-    let account_id = &settings.account_id;
-
-    let endpoint = format!(
-        "/v3/accounts/{}/pricing?instruments={}",
-        account_id, instrument_list
-    );
-    let url = format!("{}{}", API_URL, endpoint);
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        HeaderValue::from_str(authorization.as_str())?,
-    );
-    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-
-    let body = reqwest::Client::new()
-        .get(&url)
-        .headers(headers)
-        .send()
-        .await?
-        .text()
-        .await?;
-
-    let response: Response = serde_json::from_str(&body).unwrap();
-    let prices = response.prices;
-
-    Ok(prices)
-}
-
-pub async fn place_market_order(
-    instrument: &str,
-    units: f64,
-    settings: &OandaSettings,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let authorization = format!("Bearer {}", &settings.authorization);
-    let account_id = &settings.account_id;
-
-    let endpoint = format!("/v3/accounts/{}/orders", account_id);
-    let url = format!("{}{}", API_URL, endpoint);
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        HeaderValue::from_str(authorization.as_str())?,
-    );
-    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-
-    let body = format!("{{\"order\": {{\"units\": \"{}\", \"instrument\": \"{}\", \"timeInForce\": \"FOK\", \"type\": \"MARKET\", \"positionFill\": \"DEFAULT\"}}}}", units, instrument);
-
-    let response = reqwest::Client::new()
-        .post(&url)
-        .headers(headers)
-        .body(body)
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        return Err(format!("Received non-success status code: {}", response.status()).into());
-    }
-
-    // TODO: Parse response body for order ID
-    Ok(())
-}
-
-#[derive(Debug, Deserialize)]
-struct PositionResponse {
-    positions: Vec<Position>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Position {
-    pub instrument: String,
-    pub long: PositionDetails,
-    pub short: PositionDetails,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PositionDetails {
-    #[serde(deserialize_with = "deserialize_f64_from_string")]
-    pub units: f64,
-    #[serde(deserialize_with = "deserialize_f64_from_string")]
-    #[serde(rename = "unrealizedPL")]
-    pub unrealized_pl: f64,
-}
-
-impl Position {
-    pub fn units(&self) -> f64 {
-        let net = self.long.units + self.short.units;
-        println!(
-            "Net units: {}+{}={}",
-            self.long.units, self.short.units, net
-        );
-        net
-    }
-
-    pub fn unrealized_pl(&self) -> f64 {
-        self.long.unrealized_pl + self.short.unrealized_pl
-    }
-}
-
-fn deserialize_f64_from_string<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    s.parse::<f64>().map_err(serde::de::Error::custom)
-}
-
-fn deserialize_f32_from_string<'de, D>(deserializer: D) -> Result<f32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    s.parse::<f32>().map_err(serde::de::Error::custom)
-}
-
-fn deserialize_time_in_millis_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-
-    // Parse time string into milliseconds since UNIX epoch
-    // OANDA timestamps are in RFC3339 format: "2023-09-15T20:58:00.145575162Z"
-    let datetime = chrono::DateTime::parse_from_rfc3339(s)
-        .map_err(|e| serde::de::Error::custom(format!("Failed to parse datetime: {}", e)))?;
-    let millis_since_epoch = datetime.timestamp_millis() as u64;
-    Ok(millis_since_epoch)
-}
-
-pub async fn get_positions(
-    settings: &OandaSettings,
-) -> Result<Vec<Position>, Box<dyn std::error::Error>> {
-    let authorization = format!("Bearer {}", &settings.authorization);
-    let account_id = &settings.account_id;
-
-    let endpoint = format!("/v3/accounts/{}/positions", account_id);
-    let url = format!("{}{}", API_URL, endpoint);
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        HeaderValue::from_str(authorization.as_str())?,
-    );
-    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-
-    let response = reqwest::Client::new()
-        .get(&url)
-        .headers(headers)
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        return Err(format!("Received non-success status code: {}", response.status()).into());
-    }
-
-    let body = response.text().await?;
-
-    let json_response = serde_json::from_str::<PositionResponse>(&body);
-
-    if json_response.is_err() {
-        println!("API Response: {}", body);
-        return Err(format!("Error parsing JSON: {}", json_response.err().unwrap()).into());
-    }
-    let positions = json_response.unwrap().positions;
-
-    Ok(positions)
-}
-
-pub async fn get_position(
-    instrument: &str,
-    settings: &OandaSettings,
-) -> Result<Position, Box<dyn std::error::Error>> {
-    let positions = get_positions(settings).await?;
-    let position = positions.into_iter().find(|p| p.instrument == instrument);
-
-    if position.is_none() {
-        return Err(format!("No position found for instrument {}", instrument).into());
-    }
-
-    Ok(position.unwrap())
 }

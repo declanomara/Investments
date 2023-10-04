@@ -139,14 +139,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(item) = logging_price_stream.next() {
         log::trace!("Received item from stream...");
         match item {
-            Ok(quantlib::oanda::StreamItem::Price(price)) => {
+            Ok(quantlib::oanda::objects::StreamItem::Price(price)) => {
                 // It appears that the logging macros are not oppressively slow
                 log::info!(
                     "[{}] Bid: {:.5} Ask: {:.5}",
                     price.instrument, price.bid, price.ask
                 );
             }
-            Ok(quantlib::oanda::StreamItem::Heartbeat(_)) => {
+            Ok(quantlib::oanda::objects::StreamItem::Heartbeat(_)) => {
                 log::debug!("Heartbeat received.");
             }
             Err(e) => {
@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Handle the elapsed error here
                     log::error!("Connection timed out, reconnecting...");
                     logging_price_stream.refresh_connection().await?;
-                } else if let Some(_empty_chunk_error) = e.downcast_ref::<quantlib::oanda::EmptyChunkError>() {
+                } else if let Some(_empty_chunk_error) = e.downcast_ref::<quantlib::oanda::errors::EmptyChunkError>() {
                     // Handle the empty chunk error here
                     log::error!("Empty chunk received, reconnecting...");
                     logging_price_stream.refresh_connection().await?;
