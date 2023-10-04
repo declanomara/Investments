@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Handle the elapsed error here
                     log::error!("Connection timed out, reconnecting...");
                     logging_price_stream.refresh_connection().await?;
-                } else if let Some(_empty_chunk_error) = e.downcast_ref::<quantlib::oanda::EmptyChunkError>() {
+                } else if let Some(_empty_chunk_error) = e.downcast_ref::<quantlib::oanda::errors::EmptyChunkError>() {
                     // Handle the empty chunk error here
                     log::error!("Empty chunk received, reconnecting...");
                     logging_price_stream.refresh_connection().await?;
