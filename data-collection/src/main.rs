@@ -139,14 +139,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(item) = logging_price_stream.next() {
         log::trace!("Received item from stream...");
         match item {
-            Ok(quantlib::oanda::StreamItem::Price(price)) => {
+            Ok(quantlib::oanda::objects::StreamItem::Price(price)) => {
                 // It appears that the logging macros are not oppressively slow
                 log::info!(
                     "[{}] Bid: {:.5} Ask: {:.5}",
                     price.instrument, price.bid, price.ask
                 );
             }
-            Ok(quantlib::oanda::StreamItem::Heartbeat(_)) => {
+            Ok(quantlib::oanda::objects::StreamItem::Heartbeat(_)) => {
                 log::debug!("Heartbeat received.");
             }
             Err(e) => {

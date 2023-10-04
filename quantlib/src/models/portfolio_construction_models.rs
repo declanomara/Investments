@@ -1,4 +1,5 @@
 use crate::oanda;
+use crate::oanda::objects::{Settings, Position};
 use crate::models::TradingSignal;
 
 
@@ -7,12 +8,12 @@ use crate::models::TradingSignal;
 // Currently, trades are simple enough that the portfolio construction model can just place them directly.
 
 pub struct PortfolioBuilder<'a> {
-    settings: &'a oanda::Settings,
-    positions: Vec<oanda::Position>
+    settings: &'a Settings,
+    positions: Vec<Position>
 }
 
 impl<'a> PortfolioBuilder<'a> {
-    pub fn new(settings: &'a oanda::Settings) -> Self {
+    pub fn new(settings: &'a Settings) -> Self {
         PortfolioBuilder {
             settings,
             positions: Vec::new()

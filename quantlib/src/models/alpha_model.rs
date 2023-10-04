@@ -1,22 +1,22 @@
-use crate::oanda;
+use crate::oanda::objects::Price;
 use crate::models::TradingSignal;
 
 pub trait AlphaModel {
-    fn tick(&mut self, price: &oanda::Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>>;
+    fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>>;
 }
 
 pub struct ExponentialMovingAverage {
     instrument: String,
     
-    slow_ma_weight: f64,
-    fast_ma_weight: f64,
+    slow_ma_weight: f32,
+    fast_ma_weight: f32,
 
-    slow_ma: f64,
-    fast_ma: f64,
+    slow_ma: f32,
+    fast_ma: f32,
 }
 
 impl ExponentialMovingAverage {
-    pub fn new(instrument: String, slow_ma_weight: f64, fast_ma_weight: f64) -> Self {
+    pub fn new(instrument: String, slow_ma_weight: f32, fast_ma_weight: f32) -> Self {
         ExponentialMovingAverage {
             instrument,
             slow_ma_weight,
@@ -28,7 +28,7 @@ impl ExponentialMovingAverage {
 }
 
 impl AlphaModel for ExponentialMovingAverage {
-    fn tick(&mut self, price: &oanda::Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
+    fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
         let mut signal = None;
 
         // If we don't have a slow or fast moving average yet, set them to the current price
@@ -65,7 +65,7 @@ impl AlphaModel for ExponentialMovingAverage {
 pub struct SimpleMovingAverage {
     instrument: String,
     period: usize,
-    prices: Vec<f64>,
+    prices: Vec<f32>,
 }
 
 impl SimpleMovingAverage {
@@ -79,7 +79,7 @@ impl SimpleMovingAverage {
 }
 
 impl AlphaModel for SimpleMovingAverage {
-    fn tick(&mut self, price: &oanda::Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
+    fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
         let signal;
         
         // Add the current price to the list of prices
@@ -100,7 +100,7 @@ impl AlphaModel for SimpleMovingAverage {
         for price in &self.prices {
             sum += price;
         }
-        let average = sum / self.prices.len() as f64;
+        let average = sum / self.prices.len() as f32;
 
         // If the current price is above the average, buy
         if price.ask > average {
@@ -143,7 +143,7 @@ impl WeightedConsensus {
 
 
 impl AlphaModel for WeightedConsensus {
-    fn tick(&mut self, price: &oanda::Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
+    fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
         // Iterate over all the models and get their signals
         let mut signals = Vec::new();
         for model in &mut self.models {
