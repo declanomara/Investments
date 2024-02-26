@@ -1,59 +1,37 @@
-// main.rs
+pub mod backtesting;
 
-use rand::Rng;
-use std::error::Error;
+use anyhow::Result;
 
-mod backtesting;
-mod data_cleaning;
+const DATA_PATH: &str = "historical-data/weekly/EUR_USD/week-20.bin";
+const RESULT_PATH: &str = "result.csv";
 
-const INITIAL_BALANCE: f64 = 100_000.0;
-const DATA_SET: &str = "data/bin/EUR_USD.bin";
-const DATA_SETS: [&str; 6] = [
-    "data/weekly/EUR_USD/week-20.bin",
-    "data/weekly/EUR_USD/week-21.bin",
-    "data/weekly/EUR_USD/week-22.bin",
-    "data/weekly/EUR_USD/week-23.bin",
-    "data/weekly/EUR_USD/week-24.bin",
-    "data/weekly/EUR_USD/week-25.bin",
-];
+fn main() -> Result<()> {
+    // Load the data
+    println!("Loading data from {}", DATA_PATH);
+    let data_set = backtesting::load_data(DATA_PATH)?;
 
-fn create_backtest(slow_ma_weight: f32, fast_ma_weight: f32) -> backtesting::Backtest {
-    let alpha_model = Box::new(backtesting::ExponentialMovingAverage::new(
-        slow_ma_weight as f64,
-        fast_ma_weight as f64,
-    ));
+    // Load the strategy
+    // let strategy = backtesting::RandomStrategy::new();
 
-    backtesting::Backtest::new(alpha_model, INITIAL_BALANCE)
-}
+    let first_bid = data_set[0].bid;
+    let slow_weight = 0.01; // Most recent data point has 10% weight
+    let fast_weight = 0.013; // Most recent data point has 90% weight
+    let mut strategy =
+        backtesting::EMAStrategy::new(first_bid, first_bid, fast_weight, slow_weight);
 
-// Print the profit and max balance for a backtest
-fn print_results(backtest: &backtesting::Backtest) {
-    println!("Profit: {}", backtest.profit);
-    println!("Max Balance: {}", backtest.max_balance);
-    println!("Max Drawdown: {}", backtest.max_drawdown);
-    println!("Trade Count: {}", backtest.trade_count);
-}
+    // Run the backtest
+    let result = backtesting::backtest(&data_set, &mut strategy)?;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // let (mut slow_ma, mut fast_ma) = (0.00003469167, 0.00005774755);
+    // Print the result
+    println!("Final balance: {}", result.final_balance);
+    println!("Final position: {}", result.final_position);
+    println!("Final value: {}", result.final_value);
+    println!("Max value: {}", result.max_value);
+    println!("Min value: {}", result.min_value);
+    println!("Number of trades: {}", result.num_trades);
 
-    // let price_stream = backtesting::HistoricalPriceStream::new(DATA_SET)?;
-    // let mut backtest = create_backtest(slow_ma, fast_ma);
-
-    // print!("Running backtest with slow_ma_weight: {}, fast_ma_weight: {} on data set {}... ", slow_ma, fast_ma, DATA_SET);
-    // backtest.run(price_stream)?;
-    // println!("Done!");
-
-    // print_results(&backtest);
-
-    // print!("Saving results to file... ");
-    // backtest.save_report("results.csv")?;
-    // println!("Done!");
-
-    let price_stream = backtesting::HistoricalPriceStream::new(DATA_SET, false)?;
-    for price in price_stream {
-        println!("{:?}", price);
-    }
+    // Save the result to a CSV file
+    result.save_to_csv(RESULT_PATH)?;
 
     Ok(())
 }
