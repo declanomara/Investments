@@ -1,12 +1,17 @@
-use quantlib;
+use quantlib::oanda::{PriceStream, FastPriceStream};
 use quantlib::models::{AlphaModel, PortfolioBuilder};
 use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let settings = quantlib::util::read_settings()?;
-    let price_stream =
-        quantlib::oanda::PriceStream::new(vec!["EUR_USD".to_string()], &settings.oanda).await;
+    let instruments = vec!["EUR_USD".to_string()].to_vec();
+    let price_stream: FastPriceStream  = FastPriceStream::new(
+        instruments,
+        &settings.oanda,
+        1000,
+    );
+    
     let mut portfolio_builder = PortfolioBuilder::new(&settings);
     portfolio_builder.update_positions().await?; // TODO: this should be done automatically by the portfolio builder
     let mut ema = quantlib::models::ExponentialMovingAverage::new("EUR_USD".to_string(), 0.1, 0.2);

@@ -1,6 +1,9 @@
 use serde::Deserialize;
 
-use crate::oanda::helpers::{deserialize_f32_from_string, deserialize_time_in_millis_from_string, deserialize_f64_from_string};
+use crate::oanda::helpers::{
+    deserialize_f32_from_string, deserialize_f64_from_string,
+    deserialize_time_in_millis_from_string,
+};
 
 pub const STREAMING_URL: &str = "https://stream-fxpractice.oanda.com";
 pub const API_URL: &str = "https://api-fxpractice.oanda.com";
@@ -36,6 +39,17 @@ pub struct Price {
     #[serde(deserialize_with = "deserialize_time_in_millis_from_string")]
     pub time: u64,
     pub instrument: String,
+}
+
+impl Clone for Price {
+    fn clone(&self) -> Self {
+        Price {
+            bid: self.bid,
+            ask: self.ask,
+            time: self.time,
+            instrument: self.instrument.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

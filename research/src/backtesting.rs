@@ -79,23 +79,23 @@ impl RandomStrategy {
 }
 
 pub struct EMAStrategy {
-    fast_ema: f32,
-    slow_ema: f32,
+    fast_ema: f64,
+    slow_ema: f64,
 
-    fast_ema_weight: f32,
-    slow_ema_weight: f32,
+    pub fast_ema_weight: f64,
+    pub slow_ema_weight: f64,
 }
 
-fn calculate_ema(current_ema: f32, data_point: f32, weight: f32) -> f32 {
+fn calculate_ema(current_ema: f64, data_point: f64, weight: f64) -> f64 {
     (1.0 - weight) * current_ema + weight * data_point
 }
 
 impl EMAStrategy {
     pub fn new(
-        fast_ema_initial_value: f32,
-        slow_ema_initial_value: f32,
-        fast_ema_weight: f32,
-        slow_ema_weight: f32,
+        fast_ema_initial_value: f64,
+        slow_ema_initial_value: f64,
+        fast_ema_weight: f64,
+        slow_ema_weight: f64,
     ) -> Self {
         Self {
             fast_ema: fast_ema_initial_value,
@@ -105,18 +105,25 @@ impl EMAStrategy {
         }
     }
 
-    pub fn signal(&mut self, price: &Price) -> f32 {
-        let new_fast_ema = calculate_ema(self.fast_ema, price.bid, self.fast_ema_weight);
-        let new_slow_ema = calculate_ema(self.slow_ema, price.bid, self.slow_ema_weight);
+    pub fn initialize(&mut self, price: &Price) {
+        self.fast_ema = price.bid as f64;
+        self.slow_ema = price.bid as f64;
+    }
+
+    pub fn signal(&mut self, price: &Price) -> f64 {
+        let new_fast_ema = calculate_ema(self.fast_ema, price.bid as f64, self.fast_ema_weight);
+        let new_slow_ema = calculate_ema(self.slow_ema, price.bid as f64, self.slow_ema_weight);
 
         // If the fast EMA crosses above the slow EMA, buy
         // If the fast EMA crosses below the slow EMA, sell
         // Otherwise, do nothing
-        if new_fast_ema > new_slow_ema && self.fast_ema < self.slow_ema {
+        //
+
+        if new_fast_ema > new_slow_ema && self.fast_ema <= self.slow_ema {
             self.fast_ema = new_fast_ema;
             self.slow_ema = new_slow_ema;
             1.0
-        } else if new_fast_ema < new_slow_ema && self.fast_ema > self.slow_ema {
+        } else if new_fast_ema < new_slow_ema && self.fast_ema >= self.slow_ema {
             self.fast_ema = new_fast_ema;
             self.slow_ema = new_slow_ema;
             -1.0
@@ -128,22 +135,35 @@ impl EMAStrategy {
     }
 }
 
+impl Clone for EMAStrategy {
+    fn clone(&self) -> Self {
+        Self {
+            fast_ema: self.fast_ema,
+            slow_ema: self.slow_ema,
+            fast_ema_weight: self.fast_ema_weight,
+            slow_ema_weight: self.slow_ema_weight,
+        }
+    }
+}
 pub struct BacktestReport {
-    pub final_balance: f32,
-    pub final_position: f32,
-    pub final_value: f32,
-    pub max_value: f32,
-    pub min_value: f32,
+    pub initial_balance: f64,
+    pub final_balance: f64,
+    pub final_position: f64,
+    pub final_value: f64,
+    pub max_value: f64,
+    pub min_value: f64,
     pub num_trades: u32,
 
-    pub rows: Vec<Vec<String>>,
+    pub header: Vec<String>,
+    pub rows: Vec<Vec<f64>>,
 }
 
 impl BacktestReport {
     pub fn save_to_csv(&self, path: &str) -> Result<()> {
         let mut wtr = csv::Writer::from_writer(std::io::BufWriter::new(File::create(path)?));
+        wtr.write_record(&self.header)?;
         for row in &self.rows {
-            wtr.write_record(row)?;
+            wtr.write_record(row.iter().map(|x| x.to_string()).collect::<Vec<String>>())?;
         }
         wtr.flush()?;
         Ok(())
@@ -154,16 +174,16 @@ impl BacktestReport {
 // A positive signal represents fraction of the balance to spend
 // A negative signal represents fraction of the position to sell
 // A signal of 0 represents doing nothing
-pub fn handle_signal(balance: f32, position: f32, signal: f32, price: &Price) -> (f32, f32) {
+pub fn handle_signal(balance: f64, position: f64, signal: f64, price: &Price) -> (f64, f64) {
     if signal > 0.0 {
         // Buy
-        let units = (signal * balance) / price.ask;
+        let units = (signal * balance) / price.ask as f64;
         let new_balance = (1.0 - signal) * balance;
         let new_position = position + units;
         (new_balance, new_position)
     } else if signal < 0.0 {
         // Sell
-        let value = signal.abs() * position * price.bid;
+        let value = signal.abs() * position * price.bid as f64;
         let new_balance = balance + value;
         let new_position = (1.0 - signal.abs()) * position;
         (new_balance, new_position)
@@ -174,12 +194,14 @@ pub fn handle_signal(balance: f32, position: f32, signal: f32, price: &Price) ->
 }
 
 // Helper function to calculate the value of the portfolio
-pub fn calculate_value(balance: f32, position: f32, price: &Price) -> f32 {
-    balance + (position * price.bid)
+pub fn calculate_value(balance: f64, position: f64, price: &Price) -> f64 {
+    balance + (position * price.bid as f64)
 }
 
 pub fn backtest(data_set: &Vec<Price>, strategy: &mut EMAStrategy) -> Result<BacktestReport> {
-    let mut balance = 1000.0; // Doesn't really matter where we start, its all percentagewise anyway
+    // println!("Backtesting...");
+    const INITIAL_BALANCE: f64 = 1000.0;
+    let mut balance = INITIAL_BALANCE; // Doesn't really matter where we start, its all percentagewise anyway
     let mut position = 0.0;
 
     // Metrics to track
@@ -188,13 +210,21 @@ pub fn backtest(data_set: &Vec<Price>, strategy: &mut EMAStrategy) -> Result<Bac
     let mut min_value = balance;
 
     // Verbose logging
-    let mut rows = vec![vec![
+    let header = vec![
         "Time".to_string(),
         "Balance".to_string(),
         "Position".to_string(),
         "Value".to_string(),
         "Signal".to_string(),
-    ]];
+        "Bid".to_string(),
+        "Ask".to_string(),
+        "Fast EMA".to_string(),
+        "Slow EMA".to_string(),
+    ];
+    let mut rows = vec![];
+
+    // Initialize the strategy
+    strategy.initialize(&data_set[0]);
 
     // Run the strategy on the data set
     for price in data_set {
@@ -217,23 +247,64 @@ pub fn backtest(data_set: &Vec<Price>, strategy: &mut EMAStrategy) -> Result<Bac
 
         // Verbose logging
         let row = vec![
-            price.time.to_string(),
-            balance.to_string(),
-            position.to_string(),
-            value.to_string(),
-            signal.to_string(),
+            price.time as f64,
+            balance,
+            position,
+            value,
+            signal,
+            price.bid as f64,
+            price.ask as f64,
+            strategy.fast_ema,
+            strategy.slow_ema,
         ];
         rows.push(row);
     }
 
     let final_value = calculate_value(balance, position, &data_set[data_set.len() - 1]);
     Ok(BacktestReport {
+        initial_balance: INITIAL_BALANCE,
         final_balance: balance,
         final_position: position,
         final_value,
         max_value,
         min_value,
         num_trades,
+        header,
         rows,
     })
+}
+
+pub fn save_aggregate_report(reports: &mut Vec<BacktestReport>, path: &str) -> Result<()> {
+    // Take a vector of reports and save their rows to a single CSV file.
+    // Only use the first report's header
+    // Adjust the time column so the first report begins at 0,
+    // and subsequent reports begin at the end of the previous report
+
+    let mut prev_last_time = 0.0;
+    for report in reports.iter_mut() {
+        let first_time = report.rows[1][0];
+
+        for row in &mut report.rows[1..] {
+            let time = row[0] - first_time + prev_last_time;
+            row[0] = time;
+        }
+
+        prev_last_time = report.rows.last().unwrap()[0];
+    }
+
+    // Now the time column of each report should be continuous
+
+    // Save the rows of each report to a single CSV file
+    // Only use the first report's header
+
+    let mut wtr = csv::Writer::from_writer(std::io::BufWriter::new(File::create(path)?));
+    wtr.write_record(&reports[0].header)?;
+
+    for report in reports {
+        for row in &report.rows[1..] {
+            wtr.write_record(row.iter().map(|x| x.to_string()).collect::<Vec<String>>())?;
+        }
+    }
+
+    Ok(())
 }

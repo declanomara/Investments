@@ -1,7 +1,6 @@
-use crate::oanda;
-use crate::oanda::objects::{Settings, Position};
 use crate::models::TradingSignal;
-
+use crate::oanda;
+use crate::oanda::objects::{Position, Settings};
 
 // The portfolio construction model takes in a collection of trading signals, determines desired position sizes,
 // and returns a collection of trades to be executed by the execution model.
@@ -9,14 +8,14 @@ use crate::models::TradingSignal;
 
 pub struct PortfolioBuilder<'a> {
     settings: &'a Settings,
-    positions: Vec<Position>
+    positions: Vec<Position>,
 }
 
 impl<'a> PortfolioBuilder<'a> {
     pub fn new(settings: &'a Settings) -> Self {
         PortfolioBuilder {
             settings,
-            positions: Vec::new()
+            positions: Vec::new(),
         }
         // TODO: initialize positions
     }
@@ -30,8 +29,14 @@ impl<'a> PortfolioBuilder<'a> {
     // Given a trading signal, determine the desired position size and either buy or sell to reach that position
     // TODO: in the future, this should produce a trade to be executed by the execution model
     // TODO: in the future, this should account for confidence in the signal
-    pub async fn handle_signal(&mut self, signal: TradingSignal) -> Result<(), Box<dyn std::error::Error>> {
-        let current_position = self.positions.iter().find(|p| p.instrument == signal.instrument);
+    pub async fn handle_signal(
+        &mut self,
+        signal: TradingSignal,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let current_position = self
+            .positions
+            .iter()
+            .find(|p| p.instrument == signal.instrument);
         if let Some(position) = current_position {
             // Determine the desired position size
             let desired_position = if signal.forecast > 0.0 {
@@ -54,17 +59,26 @@ impl<'a> PortfolioBuilder<'a> {
             // as well as preventing repeated signals from increasing the position size
             if required_units == 0.0 {
                 return Ok(());
+            } else {
+                oanda::place_market_order(&signal.instrument, required_units, &self.settings.oanda)
+                    .await?;
             }
-            else {
-                oanda::place_market_order(&signal.instrument, required_units, &self.settings.oanda).await?;
-            }
-
         } else {
             // If no position exists, open a new position
             if signal.forecast > 0.0 {
-                oanda::place_market_order(&signal.instrument, self.settings.units, &self.settings.oanda).await?;
+                oanda::place_market_order(
+                    &signal.instrument,
+                    self.settings.units,
+                    &self.settings.oanda,
+                )
+                .await?;
             } else {
-                oanda::place_market_order(&signal.instrument, -self.settings.units, &self.settings.oanda).await?;
+                oanda::place_market_order(
+                    &signal.instrument,
+                    -self.settings.units,
+                    &self.settings.oanda,
+                )
+                .await?;
             }
         }
 
@@ -74,7 +88,10 @@ impl<'a> PortfolioBuilder<'a> {
     }
 
     // Given a collection of trading signals, determine the desired position sizes and either buy or sell to reach those positions
-    pub async fn handle_signals(&mut self, signals: Vec<TradingSignal>) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn handle_signals(
+        &mut self,
+        signals: Vec<TradingSignal>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for signal in signals {
             self.handle_signal(signal).await?;
         }

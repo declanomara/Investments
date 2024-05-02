@@ -1,37 +1,38 @@
 pub mod backtesting;
+pub mod optimization;
 
 use anyhow::Result;
+use quantlib::oanda::objects::Price;
+use rand::prelude::*;
 
-const DATA_PATH: &str = "historical-data/weekly/EUR_USD/week-20.bin";
-const RESULT_PATH: &str = "result.csv";
+const DATA_PATHS: [&str; 6] = [
+    "historical-data/weekly/EUR_USD/week-20.bin",
+    "historical-data/weekly/EUR_USD/week-21.bin",
+    "historical-data/weekly/EUR_USD/week-22.bin",
+    "historical-data/weekly/EUR_USD/week-23.bin",
+    "historical-data/weekly/EUR_USD/week-24.bin",
+    "historical-data/weekly/EUR_USD/week-25.bin",
+];
 
 fn main() -> Result<()> {
+    // temp
+    thread_rng().gen_range(0..1);
+
     // Load the data
-    println!("Loading data from {}", DATA_PATH);
-    let data_set = backtesting::load_data(DATA_PATH)?;
+    let mut data_sets: Vec<Vec<Price>> = Vec::new();
+    for path in DATA_PATHS.iter() {
+        let data = backtesting::load_data(path)?;
+        data_sets.push(data);
+    }
 
-    // Load the strategy
-    // let strategy = backtesting::RandomStrategy::new();
+    // Randomize the order of the data sets
+    data_sets.shuffle(&mut thread_rng());
 
-    let first_bid = data_set[0].bid;
-    let slow_weight = 0.01; // Most recent data point has 10% weight
-    let fast_weight = 0.013; // Most recent data point has 90% weight
-    let mut strategy =
-        backtesting::EMAStrategy::new(first_bid, first_bid, fast_weight, slow_weight);
+    // Pick the first 3 data sets
+    data_sets.truncate(3);
 
-    // Run the backtest
-    let result = backtesting::backtest(&data_set, &mut strategy)?;
-
-    // Print the result
-    println!("Final balance: {}", result.final_balance);
-    println!("Final position: {}", result.final_position);
-    println!("Final value: {}", result.final_value);
-    println!("Max value: {}", result.max_value);
-    println!("Min value: {}", result.min_value);
-    println!("Number of trades: {}", result.num_trades);
-
-    // Save the result to a CSV file
-    result.save_to_csv(RESULT_PATH)?;
+    // Run the optimization
+    optimization::optimize_ema(&data_sets)?;
 
     Ok(())
 }

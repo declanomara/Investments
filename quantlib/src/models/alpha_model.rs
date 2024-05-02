@@ -1,5 +1,5 @@
-use crate::oanda::objects::Price;
 use crate::models::TradingSignal;
+use crate::oanda::objects::Price;
 
 pub trait AlphaModel {
     fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>>;
@@ -7,7 +7,7 @@ pub trait AlphaModel {
 
 pub struct ExponentialMovingAverage {
     instrument: String,
-    
+
     slow_ma_weight: f32,
     fast_ma_weight: f32,
 
@@ -39,8 +39,10 @@ impl AlphaModel for ExponentialMovingAverage {
         }
 
         // Calculate the new moving averages
-        let new_slow_ma = self.slow_ma_weight * price.ask + (1.0 - self.slow_ma_weight) * self.slow_ma;
-        let new_fast_ma = self.fast_ma_weight * price.ask + (1.0 - self.fast_ma_weight) * self.fast_ma;
+        let new_slow_ma =
+            self.slow_ma_weight * price.ask + (1.0 - self.slow_ma_weight) * self.slow_ma;
+        let new_fast_ma =
+            self.fast_ma_weight * price.ask + (1.0 - self.fast_ma_weight) * self.fast_ma;
 
         // If the fast moving average crosses above the slow moving average, buy
         if new_fast_ma > new_slow_ma && self.fast_ma < self.slow_ma {
@@ -61,7 +63,6 @@ impl AlphaModel for ExponentialMovingAverage {
     }
 }
 
-
 pub struct SimpleMovingAverage {
     instrument: String,
     period: usize,
@@ -81,7 +82,7 @@ impl SimpleMovingAverage {
 impl AlphaModel for SimpleMovingAverage {
     fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
         let signal;
-        
+
         // Add the current price to the list of prices
         self.prices.push(price.ask);
 
@@ -119,7 +120,6 @@ impl AlphaModel for SimpleMovingAverage {
     }
 }
 
-
 // A simple weighted consensus model that takes the average of all the signals of a collection of models
 pub struct WeightedConsensus {
     models: Vec<Box<dyn AlphaModel>>,
@@ -141,7 +141,6 @@ impl WeightedConsensus {
     }
 }
 
-
 impl AlphaModel for WeightedConsensus {
     fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
         // Iterate over all the models and get their signals
@@ -150,8 +149,7 @@ impl AlphaModel for WeightedConsensus {
             let model_signal = model.tick(price)?;
             if let Some(model_signal) = model_signal {
                 signals.push(model_signal);
-            }
-            else {
+            } else {
                 signals.push(TradingSignal {
                     instrument: price.instrument.clone(),
                     forecast: 0.0,
@@ -172,11 +170,8 @@ impl AlphaModel for WeightedConsensus {
                 instrument: price.instrument.clone(),
                 forecast: average,
             }));
-        }
-        else {
+        } else {
             return Ok(None);
         }
     }
 }
-
-        

@@ -7,6 +7,7 @@ use crate::oanda::errors::EmptyChunkError;
 use crate::oanda::objects::{STREAMING_URL, OandaSettings, Price, StreamItem};
 
 
+// Raw functions for interacting with OANDA's streaming API
 async fn initialize_price_stream(instruments: &Vec<String>, settings: &OandaSettings) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
     let instrument_list = instruments.join(",");
     let authorization = format!("Bearer {}", &settings.authorization);
@@ -37,83 +38,138 @@ async fn initialize_price_stream(instruments: &Vec<String>, settings: &OandaSett
     Ok(response)
 }
 
-// TODO: Handle empty chunks (refer to LoggingPriceStream)
-// Requires some refactoring to handle ownership of reference to settings
-// Might be better to make OandaSettings cloneable
-pub struct PriceStream {
-    pub response: reqwest::Response,
-    pub buffer: Vec<u8>,
-}
+async fn parse_chunk(buffer: &mut Vec<u8>, chunk: &[u8]) -> Vec<StreamItem> {
+    // Move chunk into buffer
+    buffer.extend_from_slice(&chunk);
 
-impl PriceStream {
-    pub async fn new(instruments: Vec<String>, settings: &OandaSettings) -> Self {
-        let response = initialize_price_stream(&instruments, &settings)
-            .await
-            .unwrap();
-        let buffer = Vec::new();
+    // Parse buffer into stream of StreamItems (Price or Heartbeat) using serde_json
+    let stream = Deserializer::from_slice(&buffer);
+    let mut stream = stream.into_iter::<StreamItem>();
 
-        PriceStream { response, buffer }
-    }
-
-    async fn parse_chunk(&mut self, chunk: &[u8]) -> Vec<StreamItem> {
-        self.buffer.extend_from_slice(&chunk);
-        let stream = Deserializer::from_slice(&self.buffer);
-        let mut stream = stream.into_iter::<StreamItem>();
-
-        let mut items = Vec::new();
-        while let Some(result) = stream.next() {
-            match result {
-                Ok(item) => {
-                    items.push(item);
-                }
-                Err(err) => {
-                    println!("Error parsing JSON: {}", err);
-                    println!("{:?}", err);
-                }
+    let mut items = Vec::new();
+    let mut last_parsed_index = 0;
+    log::trace!("Streaming JSON from deserializer...");
+    while let Some(result) = stream.next() {
+        match result {
+            Ok(item) => {
+                items.push(item);
+                last_parsed_index = stream.byte_offset();
+            }
+            Err(err) => {
+                log::debug!("Error parsing JSON: {:?}", err);
+                log::debug!("This is likely caused by a chunk boundary, the next chunk will be parsed correctly.");
             }
         }
-
-        self.buffer.clear();
-        items
     }
 
-    async fn next_items(&mut self) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
-        let chunk = self.response.chunk().await?;
+    // Remove parsed JSON strings from buffer
+    *buffer = buffer[last_parsed_index..].to_vec();
+
+    items
+}
+
+
+pub trait PriceStream<'a>: Iterator<Item = Result<StreamItem, Box<dyn std::error::Error>>> {
+    fn new(instruments: Vec<String>, settings: &'a OandaSettings, timeout_duration: u64) -> Self;
+    fn refresh_connection(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+pub struct FastPriceStream<'a> {
+    pub response: reqwest::Response,
+    pub buffer: Vec<u8>,
+    pub item_buffer: std::collections::VecDeque<StreamItem>,
+
+    pub settings: &'a OandaSettings,
+    pub instruments: Vec<String>,
+    pub timeout_duration: u64
+}
+
+impl<'a> FastPriceStream<'a> {
+    pub async fn next_items(
+        &mut self,
+        timeout_duration: u64,
+    ) -> Result<Vec<StreamItem>, Box<dyn std::error::Error>> {
+        // Get next chunk from OANDA, timeout after timeout_duration milliseconds
+        log::trace!("Getting next chunk from OANDA...");
+        let chunk = timeout(
+            std::time::Duration::from_millis(timeout_duration),
+            self.response.chunk(),
+        )
+        .await??; // ?? because reqwest may return an error, and timeout may return an error
+
         if let Some(chunk) = chunk {
-            let items = self.parse_chunk(&chunk).await;
+            log::trace!("Parsing chunk...");
+            let items = parse_chunk(&mut self.buffer, &chunk).await;
             return Ok(items);
         } else {
-            return Err("Received empty chunk".into());
+            return Err(Box::new(EmptyChunkError {
+                message: "Received empty chunk from OANDA".to_string(),
+            }));
         }
     }
 }
 
-impl Iterator for PriceStream {
+impl<'a> PriceStream<'a> for FastPriceStream<'a> {
+    fn new(instruments: Vec<String>, settings: &'a OandaSettings, timeout_duration: u64) -> Self {
+        // Open connection to OANDA
+        let response = futures::executor::block_on(initialize_price_stream(&instruments, &settings)).unwrap();
+        let buffer = Vec::new();
+        let item_buffer = std::collections::VecDeque::new();
+
+        FastPriceStream {
+            response,
+            buffer,
+            item_buffer,
+
+            settings,
+            instruments,
+            timeout_duration
+        }
+    }
+
+    fn refresh_connection(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Refresh connection by closing the current one and opening a new one
+        self.response = futures::executor::block_on(initialize_price_stream(&self.instruments, &self.settings)).unwrap();
+        Ok(())
+    }
+}
+
+impl<'a> Iterator for FastPriceStream<'a> {
     type Item = Result<StreamItem, Box<dyn std::error::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let items = futures::executor::block_on(self.next_items());
+        // If there are any buffered items, return them first
+        if let Some(item) = self.item_buffer.pop_front() {
+            log::trace!("Returning buffered item...");
+            return Some(Ok(item));
+        }
+
+        // Otherwise, get next chunk from OANDA and parse it
+        let items = futures::executor::block_on(self.next_items(self.timeout_duration));
         match items {
             Ok(items) => {
                 for item in items {
-                    return Some(Ok(item));
+                    // Add all items to buffer to be returned by next() calls
+                    self.item_buffer.push_back(item);
                 }
             }
             Err(err) => {
                 return Some(Err(err));
             }
         }
-        None
+
+        // Return first item from buffer, if any
+        if let Some(item) = self.item_buffer.pop_front() {
+            return Some(Ok(item));
+        } else {
+            return None;
+        }
     }
 }
 
-// Logging price stream (might be a better solution than two different types of PriceStreams... maybe should be trait?)
-// TODO: Refactor to use trait
-// Same as PriceStream, but also logs to data files:
-// - raw.log: Raw JSON data from Oanda
-// - bin/{instrument}.bin: Binary data for each instrument including timestamp, bid, and ask
 
-
+// TODO: Refactor such that LoggingPriceStream implements PriceStream
+// TODO: Create MockPriceStream for testing
 pub struct LoggingPriceStream<'a> {
     // Used for streaming data from OANDA
     pub response: reqwest::Response,

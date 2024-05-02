@@ -6,11 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.8.4"
+rand = { version = "0.8.4", features = ["small_rng"] }
 quantlib = { path = "../quantlib" }
 csv = "1.1.6"
 chrono = "0.4.19"
+anyhow = "1.0.44"
+rayon = "1.5.1"
 
 [dev-dependencies]
 flamegraph = "0.5.1"
-
