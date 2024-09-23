@@ -1,5 +1,8 @@
+use rand::Rng;
+
 use crate::models::TradingSignal;
 use crate::oanda::objects::Price;
+use serde::{Deserialize, Serialize};
 
 pub trait AlphaModel {
     fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>>;
@@ -173,5 +176,79 @@ impl AlphaModel for WeightedConsensus {
         } else {
             return Ok(None);
         }
+    }
+}
+
+// A simple random strategy that randomly buys or sells based on configurable thresholds
+pub struct RandomStrategy {
+    pub buy_threshold: f64,
+    pub sell_threshold: f64,
+    pub rng: rand::rngs::ThreadRng,
+}
+
+impl AlphaModel for RandomStrategy {
+    fn tick(&mut self, price: &Price) -> Result<Option<TradingSignal>, Box<dyn std::error::Error>> {
+        let signal;
+        let random: f64 = self.rng.gen();
+
+        if random < self.buy_threshold {
+            signal = Some(TradingSignal {
+                instrument: price.instrument.clone(),
+                forecast: 1.0,
+            });
+        } else if random > self.sell_threshold {
+            signal = Some(TradingSignal {
+                instrument: price.instrument.clone(),
+                forecast: -1.0,
+            });
+        } else {
+            signal = None;
+        }
+
+        Ok(signal)
+    }
+}
+
+impl RandomStrategy {
+    // Create a new RandomStrategy with the given buy and sell thresholds from a JSON configuration
+    // TODO: Add proper error handling
+    pub fn from_config(config: &serde_json::Value) -> Self {
+        let buy_threshold = config["buy_threshold"].as_f64().unwrap();
+        let sell_threshold = config["sell_threshold"].as_f64().unwrap();
+        if buy_threshold + sell_threshold > 1.0 {
+            panic!("Buy and sell thresholds must sum to less than 1.0");
+        }
+        RandomStrategy {
+            buy_threshold,
+            sell_threshold,
+            rng: rand::thread_rng(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RandomStrategyConfig {
+    #[serde(rename = "buyThreshold")]
+    buy_threshold: f64,
+    #[serde(rename = "sellThreshold")]
+    sell_threshold: f64,
+}
+
+// TODO: Maybe squash these into a single from that takes a serde_json::Value and returns a strategy
+impl From<RandomStrategyConfig> for RandomStrategy {
+    fn from(config: RandomStrategyConfig) -> Self {
+        RandomStrategy {
+            buy_threshold: config.buy_threshold,
+            sell_threshold: config.sell_threshold,
+            rng: rand::thread_rng(),
+        }
+    }
+}
+
+impl From<serde_json::Value> for RandomStrategyConfig {
+    fn from(value: serde_json::Value) -> Self {
+        // value = {"modelConfig": {"buyThreshold": 0.5, "sellThreshold": 0.5}}
+        let model_config = value["modelConfig"].clone();
+        serde_json::from_value(model_config).unwrap()
     }
 }
