@@ -1,4 +1,4 @@
-use quantlib::models::{AlphaModel, PortfolioBuilder};
+use quantlib::models::{AlphaModel, AlphaModels, PortfolioBuilder};
 use quantlib::oanda::{FastPriceStream, PriceStream};
 use quantlib::util::{read_settings, TradingConfig};
 use std::env;
@@ -14,19 +14,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let settings = read_settings()?;
     let config = TradingConfig::load(args.remove(1))?;
-    let instruments = config.instruments;
-    let price_stream: FastPriceStream = FastPriceStream::new(instruments, &settings.oanda, 1000);
+    let instruments = &config.instruments;
+    let price_stream: FastPriceStream =
+        FastPriceStream::new(instruments.clone(), &settings.oanda, 1000);
 
     let mut portfolio_builder = PortfolioBuilder::new(&settings);
     portfolio_builder.update_positions().await?; // TODO: this should be done automatically by the portfolio builder
-
-    // Strategies must be "registered" here in order to be used
-    let mut strategy = match config.model.as_str() {
-        "random" => quantlib::models::RandomStrategy::from(
-            quantlib::models::RandomStrategyConfig::from(config.model_config),
-        ),
-        _ => panic!("Unknown model: {}", config.model),
-    };
+    let mut strategy = AlphaModels::from_config(&config)?;
 
     for item in price_stream {
         // Match on the item to see what kind of stream item it is, if it's a price, print it out, otherwise ignore it
