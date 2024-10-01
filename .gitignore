@@ -34,3 +34,5 @@ flamegraph.svg
 scratch/
 
 logs/
+cfg/
+/Cargo.lock
