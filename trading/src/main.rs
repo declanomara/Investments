@@ -1,8 +1,10 @@
-use quantlib::models::{AlphaModel, AlphaModels, PortfolioBuilder};
+use quantlib::models::{create_model_from_config, read_config, AlphaModel};
 use quantlib::oanda::{FastPriceStream, PriceStream};
-use quantlib::util::{read_settings, TradingConfig};
+use quantlib::util::read_settings;
 use std::env;
 use std::error::Error;
+
+// TODO: THIS NO LONGER EXECUTES TRADES, IT JUST PRINTS OUT THE SIGNALS
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -13,14 +15,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let settings = read_settings()?;
-    let config = TradingConfig::load(args.remove(1))?;
+    let config = read_config(&args[1]);
     let instruments = &config.instruments;
     let price_stream: FastPriceStream =
         FastPriceStream::new(instruments.clone(), &settings.oanda, 1000);
 
-    let mut portfolio_builder = PortfolioBuilder::new(&settings);
-    portfolio_builder.update_positions().await?; // TODO: this should be done automatically by the portfolio builder
-    let mut strategy = AlphaModels::from_config(&config)?;
+    let mut strategy = create_model_from_config(&config);
 
     for item in price_stream {
         // Match on the item to see what kind of stream item it is, if it's a price, print it out, otherwise ignore it
@@ -30,14 +30,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     "[{}][PRICE] Bid: {:.5} Ask: {:.5}",
                     price.instrument, price.bid, price.ask
                 );
-                let signal = strategy.tick(&price)?;
+                let signal = strategy.tick(&price);
                 match signal {
                     Some(signal) => {
-                        println!(
-                            "[{}][SIGNAL] Forecast: {}",
-                            signal.instrument, signal.forecast
-                        );
-                        portfolio_builder.handle_signal(signal).await?;
+                        println!("[{}][SIGNAL] Forecast: {}", price.instrument, signal.amount);
                     }
                     None => {}
                 }

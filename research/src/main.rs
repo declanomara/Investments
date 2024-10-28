@@ -1,15 +1,15 @@
+use quantlib::models::alpha_model::{create_model_from_config, read_config, AlphaModel};
+
+use optimization::{create_fitness_function, pso_optimize};
+
 mod optimization;
 
-fn test_func(x: f64, y: f64) -> f64 {
-    (x - 1.0).powi(2) + (y - 2.0).powi(2)
-}
-
-fn fitness(arr: [f64; 2]) -> f64 {
-    test_func(arr[0], arr[1])
-}
-
 fn main() {
-    let initial = [100.0, 100.0];
-    let result = optimization::optimize(initial, fitness, 10.0, 10.0);
+    let config_path = "config.json";
+    let config = read_config(config_path);
+    let model: Box<dyn AlphaModel> = create_model_from_config(&config);
+    let fitness = create_fitness_function(&config);
+    let initial = model.to_vec();
+    let result = pso_optimize(initial, fitness, 10.0, 10.0);
     println!("Result: {:?}", result);
 }
