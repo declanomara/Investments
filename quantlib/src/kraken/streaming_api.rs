@@ -1,148 +1,146 @@
-use tungstenite::{connect, stream::MaybeTlsStream, WebSocket, Message};
-use serde_json::json;
-use crate::kraken::objects::KrakenMessage;
+use tungstenite::{connect, stream::MaybeTlsStream, WebSocket, Message as WsMessage};
+use std::error::Error;
+use std::fmt;
+use crate::kraken::objects::{Message, MethodRequest, MethodParams};
 
-
-// PRICE STREAM
-pub struct PriceStream {
-    pub socket: WebSocket<MaybeTlsStream<std::net::TcpStream>>
+#[derive(Debug)]
+pub enum StreamError {
+    WebSocketError(tungstenite::Error),
+    SubscriptionError(String),
+    DeserializationError(serde_json::Error),
+    SerializationError(serde_json::Error),
 }
 
-impl PriceStream {
-    pub fn subscribe(&mut self, instruments: Vec<String>) {
-        let subscribe_message = json!({
-            "method": "subscribe",
-            "params": {
-                "channel": "ticker",
-                "symbol": instruments
-            }
-        }).to_string();
-
-        self.socket.send(Message::Text(subscribe_message.into())).expect("Failed to subscribe to Kraken WebSocket API");
+impl fmt::Display for StreamError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StreamError::WebSocketError(e) => write!(f, "WebSocket error: {}", e),
+            StreamError::SubscriptionError(msg) => write!(f, "Subscription error: {}", msg),
+            StreamError::DeserializationError(e) => write!(f, "Deserialization error: {}", e),
+            StreamError::SerializationError(e) => write!(f, "Serialization error: {}", e),
+        }
     }
 }
 
-impl Iterator for PriceStream {
-    type Item = KrakenMessage;
+impl Error for StreamError {}
+
+// MARKET DATA STREAM
+pub struct MarketDataStream {
+    socket: WebSocket<MaybeTlsStream<std::net::TcpStream>>,
+}
+
+impl MarketDataStream {
+    pub fn subscribe(&mut self, channel: &str, symbols: &[String]) -> Result<(), StreamError> {
+        let subscribe_message = MethodRequest {
+            method: "subscribe".to_string(),
+            params: MethodParams {
+                channel: channel.to_string(),
+                symbol: symbols.to_vec(),
+            },
+        };
+
+        let json = serde_json::to_string(&subscribe_message)
+            .map_err(|e| StreamError::SerializationError(e))?;
+
+        self.socket.send(WsMessage::Text(json.into()))
+            .map_err(StreamError::WebSocketError)?;
+
+        Ok(())
+    }
+
+    pub fn as_objects(self) -> MarketDataObjectStream<Self> {
+        MarketDataObjectStream::new(self)
+    }
+}
+
+impl Iterator for MarketDataStream {
+    type Item = Result<String, StreamError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let msg = self.socket.read().expect("Error reading message");
-        Some(serde_json::from_str(&msg.to_text().unwrap()).expect(format!("Error deserializing message: {}", msg).as_str()))
+        match self.socket.read() {
+            Ok(msg) => {
+                match msg {
+                    WsMessage::Text(text) => Some(Ok(text.to_string())),
+                    WsMessage::Ping(_) => {
+                        if let Err(e) = self.socket.send(WsMessage::Pong(vec![].into())) {
+                            Some(Err(StreamError::WebSocketError(e)))
+                        } else {
+                            self.next()
+                        }
+                    }
+                    WsMessage::Pong(_) => self.next(),
+                    WsMessage::Close(_) => None,
+                    _ => self.next(),
+                }
+            }
+            Err(e) => Some(Err(StreamError::WebSocketError(e))),
+        }
     }
 }
 
-pub struct PriceStreamBuilder {
-    instruments: Option<Vec<String>>,
-    url: Option<String>
+pub struct MarketDataStreamBuilder {
+    channel: Option<String>,
+    symbols: Option<Vec<String>>,
 }
 
-impl PriceStreamBuilder {
-    pub fn new() -> PriceStreamBuilder {
-        PriceStreamBuilder {
-            instruments: None,
-            url: None
+impl MarketDataStreamBuilder {
+    pub fn new() -> Self {
+        MarketDataStreamBuilder {
+            channel: None,
+            symbols: None,
         }
     }
 
-    pub fn instruments(mut self, instruments: Vec<String>) -> PriceStreamBuilder {
-        self.instruments = Some(instruments);
+    pub fn channel(mut self, channel: String) -> Self {
+        self.channel = Some(channel);
         self
     }
 
-    pub fn url(mut self, url: String) -> PriceStreamBuilder {
-        self.url = Some(url);
+    pub fn symbols(mut self, symbols: Vec<String>) -> Self {
+        self.symbols = Some(symbols);
         self
     }
 
-    pub fn build(self) -> PriceStream {
-        // Defaults:
-        // - instruments: ["BTC/USD"]
-        // - url: "wss://ws.kraken.com/v2"
-        
-        let instruments = self.instruments.unwrap_or(vec!["BTC/USD".to_string()]);
-        let url = self.url.unwrap_or("wss://ws.kraken.com/v2".to_string());
-        
-        // Open a WebSocket connection to the Kraken API
-        let (socket, response) = connect(url).expect("Failed to connect to Kraken WebSocket API");
-        println!("Connected to Kraken WebSocket API: {:#?}", response);
+    pub fn build(self) -> Result<MarketDataStream, StreamError> {
+        let (socket, _) = connect("wss://ws.kraken.com/v2")
+            .map_err(|e| StreamError::WebSocketError(e))?;
 
-        let mut price_stream = PriceStream {
-            socket
-        };
-        price_stream.subscribe(instruments);
-        price_stream
+        let mut stream = MarketDataStream { socket };
+
+        if let (Some(channel), Some(symbols)) = (self.channel, self.symbols) {
+            stream.subscribe(&channel, &symbols)?;
+        }
+
+        Ok(stream)
     }
 }
 
-
-// ORDER BOOK STREAM
-
-pub struct OrderBookStream {
-    pub socket: WebSocket<MaybeTlsStream<std::net::TcpStream>>
+pub struct MarketDataObjectStream<I> {
+    inner: I,
 }
 
-impl OrderBookStream {
-    pub fn subscribe(&mut self, instruments: Vec<String>) {
-        let subscribe_message = json!({
-            "method": "subscribe",
-            "params": {
-                "channel": "book",
-                "symbol": instruments
-            }
-        }).to_string();
-
-        self.socket.send(Message::Text(subscribe_message.into())).expect("Failed to subscribe to Kraken WebSocket API");
+impl<I> MarketDataObjectStream<I> {
+    pub fn new(inner: I) -> Self {
+        Self { inner }
     }
 }
 
-impl Iterator for OrderBookStream {
-    type Item = KrakenMessage;
+impl<I> Iterator for MarketDataObjectStream<I>
+where
+    I: Iterator<Item = Result<String, StreamError>>
+{
+    type Item = Result<Message, StreamError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let msg = self.socket.read().expect("Error reading message");
-        Some(serde_json::from_str(&msg.to_text().unwrap()).expect(format!("Error deserializing message: {}", msg).as_str()))
-    }
-}
-
-pub struct OrderBookStreamBuilder {
-    instruments: Option<Vec<String>>,
-    url: Option<String>
-}
-
-impl OrderBookStreamBuilder {
-    pub fn new() -> OrderBookStreamBuilder {
-        OrderBookStreamBuilder {
-            instruments: None,
-            url: None
+        match self.inner.next() {
+            Some(Ok(json_str)) => {
+                match serde_json::from_str(&json_str) {
+                    Ok(message) => Some(Ok(message)),
+                    Err(e) => Some(Err(StreamError::DeserializationError(e))),
+                }
+            }
+            Some(Err(e)) => Some(Err(e)),
+            None => None,
         }
-    }
-
-    pub fn instruments(mut self, instruments: Vec<String>) -> OrderBookStreamBuilder {
-        self.instruments = Some(instruments);
-        self
-    }
-
-    pub fn url(mut self, url: String) -> OrderBookStreamBuilder {
-        self.url = Some(url);
-        self
-    }
-
-    pub fn build(self) -> OrderBookStream {
-        // Defaults:
-        // - instruments: ["BTC/USD"]
-        // - url: "wss://ws.kraken.com/v2"
-        
-        let instruments = self.instruments.unwrap_or(vec!["BTC/USD".to_string()]);
-        let url = self.url.unwrap_or("wss://ws.kraken.com/v2".to_string());
-        
-        // Open a WebSocket connection to the Kraken API
-        let (socket, response) = connect(url).expect("Failed to connect to Kraken WebSocket API");
-        println!("Connected to Kraken WebSocket API: {:#?}", response);
-
-        let mut order_book_stream = OrderBookStream {
-            socket
-        };
-        order_book_stream.subscribe(instruments);
-        order_book_stream
     }
 }
