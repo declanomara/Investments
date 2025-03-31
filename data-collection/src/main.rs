@@ -1,180 +1,78 @@
-use quantlib;
-use quantlib::logging;
+mod config;
+mod stats;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use quantlib::kraken::{MarketDataStreamBuilder};
+use quantlib::util::generate_timestamp_filename;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use clap::Parser;
+use std::time::Duration;
 
-// Ensure output directory exists
-fn validate_output_directory(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Create the directory if it doesn't exist
-    if !std::path::Path::new(path).exists() {
-        log::info!("Creating output directory at {}...", path);
-        std::fs::create_dir_all(path)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse command line arguments and load configuration
+    let args = config::CliArgs::parse();
+    let config = config::Config::load(args)?;
+    
+    println!("Starting data collection with configuration:");
+    println!("  Subscriptions:");
+    for (channel, symbols) in &config.subscriptions {
+        println!("    {}: {:?}", channel, symbols);
     }
+    println!("  Data directory: {:?}", config.data_dir);
+    println!("  Monitor socket: {:?}", config.monitor_socket);
 
-    // Create the raw.log file within the output directory
-    let raw_log_path = format!("{}raw.log", path);
-    if !std::path::Path::new(&raw_log_path).exists() {
-        log::info!("Creating raw.log file at {}...", raw_log_path);
-        std::fs::File::create(&raw_log_path)?;
+    // Create a new file for this session
+    let filename = format!("{}/kraken_{}.jsonl", config.data_dir.display(), generate_timestamp_filename());
+    let file = File::create(&filename)?;
+    let mut writer = BufWriter::new(file);
+
+    print!("Building market data stream...");
+    let mut stream = MarketDataStreamBuilder::new().build()?;
+
+    // Subscribe to each channel with its symbols
+    for (channel, symbols) in &config.subscriptions {
+        stream.subscribe(channel, symbols)?;
     }
-    log::info!("Saving raw data to {}...", raw_log_path);
+    println!("success");
 
-    // Create bin/ directory within the output directory
-    let bin_path = format!("{}bin/", path);
-    if !std::path::Path::new(&bin_path).exists() {
-        log::info!("Creating bin/ directory at {}...", bin_path);
-        std::fs::create_dir_all(&bin_path)?;
-    }
-    log::info!("Saving binary files to {}...", bin_path);
-    Ok(())
-}
+    // Initialize statistics
+    let mut stats = stats::Stats::new();
+    let mut last_stats_update = std::time::Instant::now();
+    let stats_update_interval = Duration::from_secs(5);
 
-fn get_instruments() -> Vec<String> {
-    vec![
-        "AUD_CAD".to_string(),
-        "AUD_CHF".to_string(),
-        "AUD_HKD".to_string(),
-        "AUD_JPY".to_string(),
-        "AUD_NZD".to_string(),
-        "AUD_SGD".to_string(),
-        "AUD_USD".to_string(),
-        "CAD_CHF".to_string(),
-        "CAD_HKD".to_string(),
-        "CAD_JPY".to_string(),
-        "CAD_SGD".to_string(),
-        "CHF_HKD".to_string(),
-        "CHF_JPY".to_string(),
-        "CHF_ZAR".to_string(),
-        "EUR_AUD".to_string(),
-        "EUR_CAD".to_string(),
-        "EUR_CHF".to_string(),
-        "EUR_CZK".to_string(),
-        "EUR_DKK".to_string(),
-        "EUR_GBP".to_string(),
-        "EUR_HKD".to_string(),
-        "EUR_HUF".to_string(),
-        "EUR_JPY".to_string(),
-        "EUR_NOK".to_string(),
-        "EUR_NZD".to_string(),
-        "EUR_PLN".to_string(),
-        "EUR_SEK".to_string(),
-        "EUR_SGD".to_string(),
-        "EUR_TRY".to_string(),
-        "EUR_USD".to_string(),
-        "EUR_ZAR".to_string(),
-        "GBP_AUD".to_string(),
-        "GBP_CAD".to_string(),
-        "GBP_CHF".to_string(),
-        "GBP_HKD".to_string(),
-        "GBP_JPY".to_string(),
-        "GBP_NZD".to_string(),
-        "GBP_PLN".to_string(),
-        "GBP_SGD".to_string(),
-        "GBP_USD".to_string(),
-        "GBP_ZAR".to_string(),
-        "HKD_JPY".to_string(),
-        "NZD_CAD".to_string(),
-        "NZD_CHF".to_string(),
-        "NZD_HKD".to_string(),
-        "NZD_JPY".to_string(),
-        "NZD_SGD".to_string(),
-        "NZD_USD".to_string(),
-        "SGD_CHF".to_string(),
-        "SGD_JPY".to_string(),
-        "TRY_JPY".to_string(),
-        "USD_CAD".to_string(),
-        "USD_CHF".to_string(),
-        "USD_CNH".to_string(),
-        "USD_CZK".to_string(),
-        "USD_DKK".to_string(),
-        "USD_HKD".to_string(),
-        "USD_HUF".to_string(),
-        "USD_JPY".to_string(),
-        "USD_MXN".to_string(),
-        "USD_NOK".to_string(),
-        "USD_PLN".to_string(),
-        "USD_SEK".to_string(),
-        "USD_SGD".to_string(),
-        "USD_THB".to_string(),
-        "USD_TRY".to_string(),
-        "USD_ZAR".to_string(),
-        "ZAR_JPY".to_string()
-    ]
-}
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Handle SIGINT
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
+    let mut message_count = 0;
 
-    ctrlc::set_handler(move || {
-        r.store(false, Ordering::SeqCst);
-    })?;
+    for msg in stream {
+        match msg {
+            Ok(json_str) => {
+                // Write raw JSON to file
+                writeln!(writer, "{}", json_str)?;
+                message_count += 1;
 
-    // Configure logger
-    logging::configure_logger("logs/data-collection.log")?;
+                // Parse message for stats
+                match serde_json::from_str::<quantlib::kraken::objects::Message>(&json_str) {
+                    Ok(message) => stats.update(&message),
+                    Err(_) => stats.record_malformed_message(),
+                }
 
-    // Ensure output directory exists
-    let output_dir = "data/";
-    log::info!("Validating output directory...");
-    validate_output_directory(output_dir)?;
+                // Flush periodically
+                if message_count % 100 == 0 {
+                    writer.flush()?;
+                }
 
-    // Read settings
-    let settings = quantlib::util::read_settings().unwrap_or_else(|err| {
-        log::error!("Failed to read settings: {}", err);
-        std::process::exit(1);
-    });
-
-    let instruments = get_instruments();
-    log::info!("Starting logging price stream for {} instruments...", instruments.len());
-    let mut logging_price_stream = quantlib::oanda::LoggingPriceStream::new(
-        instruments,
-        output_dir,
-        10_000, // 10 second timeout, we expect a heartbeat every 5 seconds
-        &settings.oanda,
-    )
-    .await?;
-
-    while let Some(item) = logging_price_stream.next() {
-        log::trace!("Received item from stream...");
-        match item {
-            Ok(quantlib::oanda::objects::StreamItem::Price(price)) => {
-                // It appears that the logging macros are not oppressively slow
-                log::info!(
-                    "[{}] Bid: {:.5} Ask: {:.5}",
-                    price.instrument, price.bid, price.ask
-                );
-            }
-            Ok(quantlib::oanda::objects::StreamItem::Heartbeat(_)) => {
-                log::debug!("Heartbeat received.");
-            }
-            Err(e) => {
-                if let Some(_elapsed_error) = e.downcast_ref::<tokio::time::error::Elapsed>() {
-                    // Handle the elapsed error here
-                    log::error!("Connection timed out, reconnecting...");
-                    logging_price_stream.refresh_connection().await?;
-                } else if let Some(_empty_chunk_error) = e.downcast_ref::<quantlib::oanda::errors::EmptyChunkError>() {
-                    // Handle the empty chunk error here
-                    log::error!("Empty chunk received, reconnecting...");
-                    logging_price_stream.refresh_connection().await?;
-                } else
-                {
-                    // Handle other errors here
-                    log::error!("{}", e);
+                // Update stats display periodically
+                if last_stats_update.elapsed() >= stats_update_interval {
+                    println!("\n{}", stats.get_stats());
+                    last_stats_update = std::time::Instant::now();
                 }
             }
+            Err(e) => {
+                eprintln!("Error receiving message: {}", e);
+                stats.record_malformed_message();
+            }
         }
-
-        // Handle SIGINT elegantly
-        if running.load(Ordering::SeqCst) == false {
-            log::info!("Received SIGINT, flushing buffers and exiting...");
-            logging_price_stream.flush()?;
-            break;
-        }
-
-        log::trace!("Waiting for next item from stream...");
     }
 
+    println!("\nData collection complete. Messages saved to: {}", filename);
     Ok(())
-}
+} 

@@ -1,0 +1,21 @@
+# Data collection configuration
+
+subscriptions = { book = [
+    "BTC/USD",
+    "ETH/USD",
+    "XRP/USD",
+    "SOL/USD",
+    "ADA/USD"
+], ticker = [
+    "BTC/USD",
+    "ETH/USD",
+    "XRP/USD",
+    "SOL/USD",
+    "ADA/USD"
+] }
+
+# Directory where data files will be stored
+data_dir = "data"
+
+# Unix domain socket for monitoring the data collection process
+monitor_socket = "/tmp/collector.sock" 
