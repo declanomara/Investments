@@ -1,18 +1,97 @@
-# O'Mara Investments
-## About
-This project is a collection of tools for trading forex. It is written in Rust to ensure stability and speed, two obviously critical factors in trading. It is designed to be modular, so that it can be easily extended to support other markets and trading strategies. It is currently in the early stages of development, and is not designed for public use, but rather to allow me to learn more about trading and Rust, and hopefully make some money in the process.
+# O'Mara Investment System
 
-## Structure
-This project contains the following crates:
-- `quantlib`: The main crate, containing the shared code for the project.
-- `trading`: The trading bot, which is used to trade forex.
-- `research`: The research crate, used to research trading strategies through backtesting.
-- `data-collection`: The data crate, which will be used to download and store data.
+A robust system for collecting and storing market data from cryptocurrency exchanges, built in Rust.
 
-## Status/Roadmap
-Currently, the project is in the early stages of development. Basic examples of all four aspects of the project have been implemented, but they are not yet integrated. The next steps are:
+## Overview
 
-1. Streamline the research crate. I got too excited and tried to generalize too much to my own demise. For the time being, rewriting the research crate while developing new strategies is fine, but once I have a strategy that I am confident in, I will need to rewrite the research crate to be more general.
-2. Move all definitions of shared types to the `quantlib` crate. (Currently the `research` crate has its own definitions of types that are also defined in `quantlib`.)
+This project consists of two main components:
 
-Once those are done I can begin to forward test strategies on a demo account in the AWS cloud. The data-collection crate seems quite stable, I have successfully collected data since October 2023 without any human involvement, and I have been using that data to try to develop strategies. Once I am confident that the system is stable and profitable, I can begin to trade with real money, and focus on rewriting production versions of the crates to be more profitable through measures such as minimizing latency and fancier optimization techniques.
+1. **quantlib**: A Rust library providing core functionality for market data collection and processing
+   - WebSocket client for Kraken's v2 API
+   - Order book management
+   - Market data stream handling
+
+2. **data-collection**: A service that uses quantlib to collect and store market data
+   - Configurable subscriptions for multiple symbols
+   - Raw JSON data storage for maximum flexibility in the future
+   - Real-time statistics tracking
+
+## Getting Started
+
+### Prerequisites
+
+- Rust 1.75 or later
+- Cargo (comes with Rust)
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/declanomara/Investments
+cd Investments
+```
+
+2. Build the project:
+```bash
+cargo build --release
+```
+
+### Configuration
+
+Create a `config.toml` file with your desired settings:
+
+```toml
+subscriptions = { 
+    book = ["BTC/USD", "ETH/USD"],
+    ticker = ["BTC/USD", "ETH/USD"]
+}
+
+data_dir = "data"
+monitor_socket = "/tmp/collector.sock"
+```
+
+### Running the Collector
+
+```bash
+cargo run --release --bin data-collection
+```
+
+## Project Structure
+
+```
+.
+├── quantlib/           # Core library
+│   ├── src/
+│   │   ├── kraken/    # Kraken API implementation
+│   │   ├── objects.rs # Data structures
+│   │   └── util.rs    # Utility functions
+│   └── Cargo.toml
+├── data-collection/   # Data collection service
+│   ├── src/
+│   │   ├── main.rs    # Main service entry point
+│   │   ├── config.rs  # Configuration handling
+│   │   └── stats.rs   # Statistics tracking
+│   └── Cargo.toml
+├── data/             # Data storage directory
+└── data_collection_config.toml
+```
+
+## Development Roadmap
+
+### Short Term
+- [ ] Implement graceful shutdown mechanism
+- [ ] Add Unix domain socket for monitoring and control
+- [ ] Add data validation and error recovery
+- [ ] Improve monitoring capabilities
+
+### Long Term
+- [ ] Implement data processing pipeline
+- [ ] Add support for more exchanges
+- [ ] Develop analysis tools
+- [ ] Create visualization dashboard
+
+## License
+
+This project is proprietary software. All rights reserved. See LICENSE file for details.
+
+Unauthorized copying, modification, distribution, public display, or public performance of this software is strictly prohibited.
